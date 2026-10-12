@@ -67,6 +67,8 @@ const steps = computed(() => [
   --del-bg: #fbd9d6;
   --fill-bg: #eef6ff;
   --conflict-bg: #fff6ea;
+  --manual-bg: #fdf3c4;
+  --manual: #9a7b00;
   font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans Tibetan', sans-serif;
   font-size: 14px;
   color: var(--text);
@@ -88,6 +90,8 @@ const steps = computed(() => [
     --del-bg: #5a2420;
     --fill-bg: #1c2a3d;
     --conflict-bg: #3a2d1a;
+    --manual-bg: #3a3415;
+    --manual: #e3c450;
   }
 }
 
@@ -196,6 +200,15 @@ footer.row { margin-top: 12px; }
 table.map td:first-child { width: 28%; font-weight: 600; }
 table.map td:nth-child(2) { width: 36%; white-space: nowrap; }
 table.map select { min-width: 160px; }
-table.map tr.unset td:first-child { color: var(--muted); font-weight: normal; }
+table.map tr td:first-child { border-left: 3px solid transparent; }
+table.map tr.map-same td { background: var(--ins-bg); }
+table.map tr.map-same td:first-child { border-left-color: var(--ok); }
+table.map tr.map-same .badge { color: var(--ok); border-color: var(--ok); }
+table.map tr.map-manual td { background: var(--manual-bg); }
+table.map tr.map-manual td:first-child { border-left-color: var(--manual); }
+table.map tr.map-manual .badge { color: var(--manual); border-color: var(--manual); }
+table.map tr.map-none td { background: var(--del-bg); }
+table.map tr.map-none td:first-child { border-left-color: var(--danger); }
+table.map tr.map-none .badge { color: var(--danger); border-color: var(--danger); }
 footer.row button.primary { margin-top: 0; }
 </style>

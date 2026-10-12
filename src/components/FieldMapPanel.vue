@@ -9,7 +9,13 @@ import { plainText } from '../lib/display.js'
 const { state, fieldPairs, setFieldMap, resetFieldMap } = useMergeSession()
 
 const mapOf = (pair) => state.fieldMaps[pair.key]
-const byName = (pair, lib) => mapOf(pair)[lib] && mapOf(pair)[lib] === sameNamedField(pair.notetype.fields, lib)
+/** Row status: paired by same name, mapped by hand to a differently named field, or fed by nothing. */
+function rowStatus(pair, lib) {
+  const pkg = mapOf(pair)[lib]
+  if (!pkg) return 'none'
+  return pkg === sameNamedField(pair.notetype.fields, lib) ? 'same' : 'manual'
+}
+const STATUS_TEXT = { same: 'same name', manual: 'different name', none: 'no match' }
 const unmapped = (pair) => unmappedFields(pair.notetype.fields, mapOf(pair))
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 const unmappedCount = computed(() => fieldPairs.value.reduce((n, p) => n + unmapped(p).length, 0))
@@ -50,7 +56,7 @@ function example(pair, lib) {
       <table class="plain map">
         <thead><tr><th>Library field</th><th>Filled from package field</th><th>Example</th></tr></thead>
         <tbody>
-          <tr v-for="lib in pair.libFields" :key="lib" :class="{ unset: !mapOf(pair)[lib] }">
+          <tr v-for="lib in pair.libFields" :key="lib" :class="`map-${rowStatus(pair, lib)}`">
             <td>{{ lib }}</td>
             <td>
               <select
@@ -61,7 +67,7 @@ function example(pair, lib) {
                 <option value="">(nothing)</option>
                 <option v-for="f in pair.notetype.fields" :key="f" :value="f">{{ f }}</option>
               </select>
-              <span v-if="byName(pair, lib)" class="badge">same name</span>
+              <span class="badge">{{ STATUS_TEXT[rowStatus(pair, lib)] }}</span>
             </td>
             <td class="small">{{ example(pair, lib) }}</td>
           </tr>
