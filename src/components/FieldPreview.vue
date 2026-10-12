@@ -22,9 +22,17 @@ watch(
     const run = ++latest
     const withSounds = (props.html ?? '').replace(
       /\[sound:([^\]]+)\]/g,
-      (_, name) => `<span class="sound">🔊 ${escapeHtml(name)}</span>`,
+      (_, name) => `<span class="sound" data-name="${escapeHtml(name)}">🔊 ${escapeHtml(name)}</span>`,
     )
     const doc = new DOMParser().parseFromString(DOMPurify.sanitize(withSounds), 'text/html')
+    // Sounds become players; added after sanitizing, from files we resolved ourselves.
+    const sounds = [...doc.querySelectorAll('span.sound[data-name]')].map(async (span) => {
+      const url = await resolveMedia(span.dataset.name, props.source)
+      if (!url) return span.classList.add('missing')
+      const audio = Object.assign(doc.createElement('audio'), { controls: true, preload: 'metadata', src: url, title: span.dataset.name })
+      span.replaceWith(audio)
+    })
+    await Promise.all(sounds)
     await Promise.all(
       [...doc.querySelectorAll('img')].map(async (img) => {
         const src = img.getAttribute('src') ?? ''

@@ -5,6 +5,7 @@ import { initialResolution } from '../lib/match.js'
 import { entryLabel, STATUS_LABEL } from '../lib/display.js'
 import DiffText from './DiffText.vue'
 import FieldPreview from './FieldPreview.vue'
+import MediaStrip from './MediaStrip.vue'
 
 const props = defineProps({
   entry: { type: Object, required: true },
@@ -84,17 +85,24 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <tbody>
         <tr v-for="f in shownFields" :key="f.name" :class="f.status">
           <th>
-            {{ f.name }}
+            <!-- Break long names after underscores (Sound_non_shesa) before breaking mid-word. -->
+            <template v-for="(part, i) in f.name.split(/(?<=_)/)" :key="i">{{ part }}<wbr /></template>
             <small v-if="f.pkgName && f.pkgName !== f.name">← {{ f.pkgName }}</small>
             <small>{{ STATUS_LABEL[f.status] }}</small>
           </th>
           <td>
             <FieldPreview v-if="rendered" :html="f.lib" source="lib" />
-            <DiffText v-else :a="f.lib" :b="f.pkg" side="lib" />
+            <template v-else>
+              <DiffText :a="f.lib" :b="f.pkg" side="lib" />
+              <MediaStrip :html="f.lib" source="lib" />
+            </template>
           </td>
           <td>
             <FieldPreview v-if="rendered" :html="f.pkg" source="pkg" />
-            <DiffText v-else :a="f.lib" :b="f.pkg" side="pkg" />
+            <template v-else>
+              <DiffText :a="f.lib" :b="f.pkg" side="pkg" />
+              <MediaStrip :html="f.pkg" source="pkg" />
+            </template>
           </td>
           <td class="result">
             <div class="pick">
@@ -104,6 +112,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             </div>
             <textarea v-model="resolution.values[f.name]" :rows="rows(resolution.values[f.name])" spellcheck="false"></textarea>
             <FieldPreview v-if="rendered" :html="resolution.values[f.name]" source="result" />
+            <MediaStrip v-else :html="resolution.values[f.name]" source="result" />
           </td>
         </tr>
       </tbody>

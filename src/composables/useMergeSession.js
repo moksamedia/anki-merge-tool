@@ -428,7 +428,12 @@ async function applyMerge() {
 
 // Cached data: URLs for previews, keyed by source + filename.
 const mediaCache = new Map()
-const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' }
+const MIME = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+  bmp: 'image/bmp', avif: 'image/avif',
+  mp3: 'audio/mpeg', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4',
+  aac: 'audio/aac', flac: 'audio/flac', spx: 'audio/ogg', webm: 'audio/webm', mp4: 'audio/mp4', '3gp': 'audio/3gpp',
+}
 
 function resolveMedia(name, source) {
   const key = `${source}\u0000${name}`

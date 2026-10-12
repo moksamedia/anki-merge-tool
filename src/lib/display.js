@@ -9,4 +9,14 @@ export function entryLabel(entry, preferredMainField) {
   return plainText(entry.pkgFields[field]) || `(empty ${field})`
 }
 
+const IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'avif'])
+// Anki plays [sound:] references, which can also be video files; their audio plays.
+const AUDIO_EXT = new Set(['mp3', 'ogg', 'oga', 'opus', 'wav', 'm4a', 'aac', 'flac', 'spx', 'webm', 'mp4', '3gp'])
+
+/** 'image' | 'audio' for a media filename, or null for other files. */
+export function mediaKind(name) {
+  const ext = name.split('.').pop().toLowerCase()
+  return IMAGE_EXT.has(ext) ? 'image' : AUDIO_EXT.has(ext) ? 'audio' : null
+}
+
 export const STATUS_LABEL = { same: 'identical', fill: 'fills empty', conflict: 'conflict' }

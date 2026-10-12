@@ -99,6 +99,18 @@ const steps = computed(() => [
   }
 }
 
+/*
+ * Tibetan drawn half again as large wherever this family leads (the comparison
+ * table). unicode-range limits it to Tibetan code points, so Latin text and HTML
+ * markup keep their size, and it works inside the Result textarea too.
+ */
+@font-face {
+  font-family: 'Tibetan Large';
+  src: local('Noto Sans Tibetan'), local('NotoSansTibetan-Regular'), local('Kailasa'), local('Kailasa-Regular');
+  unicode-range: U+0F00-0FFF;
+  size-adjust: 150%;
+}
+
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); }
 main { padding: 16px 24px 48px; max-width: 1600px; margin: 0 auto; }
@@ -190,23 +202,30 @@ tr.excluded { opacity: 0.45; }
 .merge { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; min-width: 0; }
 .merge-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .merge-head h3 { font-size: 20px; margin-bottom: 4px; }
-table.fields { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.fields { width: 100%; border-collapse: collapse; table-layout: fixed; font-family: 'Tibetan Large', system-ui, -apple-system, 'Segoe UI', sans-serif; }
 table.fields th, table.fields td { border: 1px solid var(--border); padding: 8px; vertical-align: top; text-align: left; }
 table.fields thead th:first-child { width: 120px; }
+table.fields tbody th { overflow-wrap: anywhere; }
 table.fields tbody th small { display: block; font-weight: normal; color: var(--muted); }
 table.fields tr.conflict th { background: var(--conflict-bg); }
 table.fields tr.fill th { background: var(--fill-bg); }
-.result textarea { width: 100%; font-family: ui-monospace, Menlo, monospace; font-size: 12px; resize: vertical; }
+.result textarea { width: 100%; font-family: 'Tibetan Large', ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.8; resize: vertical; }
 .pick { display: flex; gap: 4px; margin-bottom: 6px; }
 .pick button { padding: 3px 8px; font-size: 12px; }
 
-.raw { font-family: ui-monospace, Menlo, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.raw { font-family: 'Tibetan Large', ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.8; white-space: pre-wrap; word-break: break-word; }
 .raw .ins { background: var(--ins-bg); border-radius: 2px; }
 .raw .del { background: var(--del-bg); border-radius: 2px; text-decoration: line-through; }
 .empty, .missing { color: var(--muted); font-style: italic; }
 .preview { word-break: break-word; font-size: 16px; }
 .preview img { max-width: 100%; max-height: 220px; }
 .preview .sound { font-size: 12px; color: var(--muted); }
+.preview audio { display: block; height: 32px; width: 100%; max-width: 280px; margin: 4px 0; }
+.media-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.media-strip figure { margin: 0; display: flex; flex-direction: column; gap: 2px; max-width: 100%; }
+.media-strip img { max-height: 96px; max-width: 160px; object-fit: contain; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); }
+.media-strip audio { height: 32px; width: 240px; max-width: 100%; }
+.media-strip figcaption { font-size: 11px; color: var(--muted); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .result .preview { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
 footer.row { margin-top: 12px; }
 
