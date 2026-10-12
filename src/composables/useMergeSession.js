@@ -12,6 +12,8 @@ const DEFAULT_SETTINGS = {
   mainField: 'Tibetan',
   autoFillEmpty: true,
   ignoreGuid: false,
+  // How Result cells are edited: 'code' (raw HTML) or 'editor' (like Anki's field editor).
+  resultMode: 'code',
 }
 
 function load(key, fallback) {
@@ -57,6 +59,8 @@ const state = reactive({
   libModels: [],
   libDecks: [],
   libModelFields: {},
+  // {modelName: {field: {font, size}}}, the editor fonts Anki uses per field.
+  libModelFonts: {},
   mapping: {},
   // {pairKey: {libraryField: packageField | ''}} per (package type, library type) pair.
   fieldMaps: {},
@@ -216,6 +220,27 @@ async function loadModelFields() {
   for (const name of names) {
     if (!state.libModelFields[name]) state.libModelFields[name] = await client.modelFieldNames(name)
   }
+  await loadModelFonts(names)
+}
+
+/** Best effort: an AnkiConnect without modelFieldFonts just leaves the default font. */
+async function loadModelFonts(names) {
+  for (const name of names) {
+    if (state.libModelFonts[name]) continue
+    try {
+      state.libModelFonts[name] = await client.modelFieldFonts(name)
+    } catch {
+      state.libModelFonts[name] = {}
+    }
+  }
+}
+
+const DEFAULT_FIELD_FONT = { font: 'Arial', size: 20 }
+
+/** The font Anki's editor would use for a library field. */
+function fieldFont(modelName, field) {
+  const f = state.libModelFonts[modelName]?.[field]
+  return f?.font ? { font: f.font, size: f.size || DEFAULT_FIELD_FONT.size } : DEFAULT_FIELD_FONT
 }
 
 async function runAnalysis() {
@@ -239,6 +264,7 @@ async function runAnalysis() {
     state.progress = `Loading ${ids.length} matched library notes…`
     const libNotes = await client.notesInfo(ids)
     for (const n of libNotes) state.libModelFields[n.modelName] ??= n.fieldOrder
+    await loadModelFonts([...new Set(libNotes.map((n) => n.modelName))])
 
     state.matches = markRaw(matches)
     state.libNotes = markRaw(libNotes)
@@ -472,6 +498,7 @@ export function useMergeSession() {
     runAnalysis,
     applyMerge,
     resolveMedia,
+    fieldFont,
     pkgDeckName,
   }
 }

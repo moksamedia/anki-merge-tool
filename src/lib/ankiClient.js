@@ -42,6 +42,8 @@ export function createAnkiClient(settings) {
     deckNames: () => call('deckNames'),
     modelNames: () => call('modelNames'),
     modelFieldNames: (modelName) => call('modelFieldNames', { modelName }),
+    /** {field: {font, size}} per field of a note type. */
+    modelFieldFonts: (modelName) => call('modelFieldFonts', { modelName }),
 
     async notesInfo(ids) {
       const out = []

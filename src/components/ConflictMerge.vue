@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { confirm } from '@tauri-apps/plugin-dialog'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { initialResolution } from '../lib/match.js'
@@ -8,6 +8,7 @@ import { isManualEdit, takenSides, valueForSides } from '../lib/resultSides.js'
 import DiffText from './DiffText.vue'
 import FieldPreview from './FieldPreview.vue'
 import MediaStrip from './MediaStrip.vue'
+import HtmlEditor from './HtmlEditor.vue'
 
 const props = defineProps({
   entry: { type: Object, required: true },
@@ -16,13 +17,32 @@ const props = defineProps({
 })
 const emit = defineEmits(['prev', 'next'])
 
-const { state, settings } = useMergeSession()
+const { state, settings, fieldFont } = useMergeSession()
 const rendered = ref(false)
 const showSame = ref(false)
 
 const resolution = computed(() => state.resolutions[props.entry.guid])
 const shownFields = computed(() => props.entry.fields.filter((f) => showSame.value || f.status !== 'same'))
 const sameCount = computed(() => props.entry.fields.filter((f) => f.status === 'same').length)
+
+// Result cells: 'code' (raw HTML textarea) or 'editor' (Anki-like field).
+// The header sets every cell; a cell can then differ until the next header click.
+const cellModes = reactive({})
+const modeOf = (f) => cellModes[f.name] ?? settings.resultMode
+function setAllModes(mode) {
+  settings.resultMode = mode
+  for (const name of Object.keys(cellModes)) delete cellModes[name]
+}
+const toggleCell = (f) => (cellModes[f.name] = modeOf(f) === 'code' ? 'editor' : 'code')
+const fontFor = (f) => fieldFont(props.entry.libNote.modelName, f.name)
+
+// Ctrl/Cmd+Shift+X toggles the HTML editor for that field, as in Anki.
+function onCellKey(f, e) {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'x') {
+    e.preventDefault()
+    toggleCell(f)
+  }
+}
 
 const rows = (text) => Math.min(12, Math.max(2, Math.ceil((text?.length ?? 0) / 60)))
 const valueOf = (f) => resolution.value.values[f.name] ?? ''
@@ -55,7 +75,7 @@ function reset() {
 }
 
 function onKey(e) {
-  if (e.metaKey || e.ctrlKey || e.altKey || ['TEXTAREA', 'INPUT', 'SELECT'].includes(e.target.tagName)) return
+  if (e.metaKey || e.ctrlKey || e.altKey || e.target.isContentEditable || ['TEXTAREA', 'INPUT', 'SELECT'].includes(e.target.tagName)) return
   const actions = {
     a: () => decide('accepted'),
     s: () => decide('skipped'),
@@ -64,6 +84,7 @@ function onKey(e) {
     k: () => emit('prev'),
     ArrowLeft: () => emit('prev'),
     r: () => (rendered.value = !rendered.value),
+    e: () => setAllModes(settings.resultMode === 'code' ? 'editor' : 'code'),
   }
   if (actions[e.key]) {
     e.preventDefault()
@@ -90,6 +111,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       </div>
       <div class="row">
         <label class="toggle"><input v-model="rendered" type="checkbox" /> Rendered (R)</label>
+        <span class="seg" role="group" aria-label="Result cells" title="How every Result cell is edited (E)">
+          <button :class="{ on: settings.resultMode === 'code' }" @click="setAllModes('code')">Code</button>
+          <button :class="{ on: settings.resultMode === 'editor' }" @click="setAllModes('editor')">Editor</button>
+        </span>
         <button :disabled="index === 0" @click="emit('prev')">← Prev</button>
         <span class="muted">{{ index + 1 }} / {{ total }}</span>
         <button :disabled="index === total - 1" @click="emit('next')">Next →</button>
@@ -140,11 +165,23 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
               <MediaStrip :html="f.pkg" source="pkg" />
             </template>
           </td>
-          <td class="result">
-            <small v-if="isManualEdit(f, valueOf(f))" class="edited">edited by hand</small>
-            <textarea v-model="resolution.values[f.name]" :rows="rows(resolution.values[f.name])" spellcheck="false"></textarea>
-            <FieldPreview v-if="rendered" :html="resolution.values[f.name]" source="result" />
-            <MediaStrip v-else :html="resolution.values[f.name]" source="result" />
+          <td class="result" @keydown="onCellKey(f, $event)">
+            <div class="cell-tools">
+              <small v-if="isManualEdit(f, valueOf(f))" class="edited">edited by hand</small>
+              <span v-else></span>
+              <span class="seg small" role="group" :aria-label="`Edit ${f.name} as`" title="This cell (Ctrl/Cmd+Shift+X)">
+                <button :class="{ on: modeOf(f) === 'code' }" @click="cellModes[f.name] = 'code'">Code</button>
+                <button :class="{ on: modeOf(f) === 'editor' }" @click="cellModes[f.name] = 'editor'">Editor</button>
+              </span>
+            </div>
+            <template v-if="modeOf(f) === 'editor'">
+              <HtmlEditor v-model="resolution.values[f.name]" :font="fontFor(f)" source="result" />
+            </template>
+            <template v-else>
+              <textarea v-model="resolution.values[f.name]" :rows="rows(resolution.values[f.name])" spellcheck="false"></textarea>
+              <FieldPreview v-if="rendered" :html="resolution.values[f.name]" source="result" />
+              <MediaStrip v-else :html="resolution.values[f.name]" source="result" />
+            </template>
           </td>
         </tr>
       </tbody>
@@ -162,7 +199,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <button class="primary" @click="decide('accepted')">Accept merge (A)</button>
       <button @click="decide('skipped')">Skip note (S)</button>
       <button @click="reset">Reset</button>
-      <span class="muted">J/K or ←/→ to move between notes</span>
+      <span class="muted">J/K or ←/→ to move between notes · E toggles Code/Editor</span>
     </footer>
   </div>
 </template>
