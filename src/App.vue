@@ -235,12 +235,11 @@ table.fields tr.fill th { background: var(--fill-bg); }
 .html-editor:empty::before { content: '(empty)'; color: var(--muted); font-style: italic; font-size: 13px; font-family: system-ui, sans-serif; }
 .html-editor img { max-width: 100%; max-height: 240px; vertical-align: middle; }
 .result textarea { width: 100%; font-family: 'Tibetan Large', ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.8; resize: vertical; }
-/* Library/Package cells: a small checkbox in the top right takes that side. */
-table.fields td.side { position: relative; padding-right: 30px; }
-table.fields td.side .take {
-  position: absolute; top: 8px; right: 8px; margin: 0;
-  width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer;
-}
+/* Library/Package cells: click takes that side (light blue when taken), shift-click takes only it. */
+table.fields td.side.pick { cursor: pointer; transition: background-color 0.1s, box-shadow 0.1s; }
+table.fields td.side.pick:hover { box-shadow: inset 0 0 0 1px var(--accent); }
+table.fields td.side.on { background: var(--fill-bg); box-shadow: inset 0 0 0 1px var(--accent); }
+table.fields td.side.on:hover { box-shadow: inset 0 0 0 2px var(--accent); }
 
 .raw { font-family: 'Tibetan Large', ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.8; white-space: pre-wrap; word-break: break-word; }
 .raw .ins { background: var(--ins-bg); border-radius: 2px; }

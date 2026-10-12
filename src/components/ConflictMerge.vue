@@ -52,9 +52,9 @@ const SIDE_LABEL = { lib: 'library', pkg: 'package' }
 /** A side can be taken when it has content and the field isn't identical on both sides. */
 const canTake = (f, side) => f.status !== 'same' && !!f[side]
 
-/** Take or drop one side; asks before replacing a result edited by hand. `box` is the checkbox, if one was used. */
-async function take(f, side, checked, box = null) {
-  const next = valueForSides(f, { ...taken(f), [side]: checked })
+/** Set which sides the result takes; asks before replacing a result edited by hand. */
+async function setSides(f, sides) {
+  const next = valueForSides(f, sides)
   const ok =
     !isManualEdit(f, valueOf(f)) ||
     (await confirm(`You've edited the result for "${f.name}" by hand. Replace your edits?`, {
@@ -64,16 +64,22 @@ async function take(f, side, checked, box = null) {
       cancelLabel: 'Keep my edits',
     }))
   if (ok) resolution.value.values[f.name] = next
-  // Re-sync the box with the value: unchanged on cancel, or a no-op toggle.
-  if (box) box.checked = taken(f)[side]
 }
 
-/** Double-clicking a Library/Package cell toggles its checkbox; not from the box itself or a player. */
-function onSideDblclick(f, side, e) {
+/**
+ * Clicking a Library/Package cell toggles that side; shift-click takes only
+ * that side. Clicks on a player or link, or that selected text, are left alone.
+ */
+function onSideClick(f, side, e) {
   if (!canTake(f, side) || e.target.closest('input, button, audio, a')) return
-  window.getSelection()?.removeAllRanges()
-  take(f, side, !taken(f)[side])
+  if (window.getSelection()?.toString()) return
+  const other = side === 'lib' ? 'pkg' : 'lib'
+  const now = taken(f)
+  setSides(f, e.shiftKey ? { [side]: true, [other]: false } : { ...now, [side]: !now[side] })
 }
+
+/** Shift-click would extend the text selection; it's a selection of sides here. */
+const onSideMousedown = (e) => e.shiftKey && e.preventDefault()
 
 function decide(status) {
   resolution.value.status = status
@@ -140,32 +146,30 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             <small v-if="f.pkgName && f.pkgName !== f.name">← {{ f.pkgName }}</small>
             <small>{{ STATUS_LABEL[f.status] }}</small>
           </th>
-          <td class="side" @dblclick="onSideDblclick(f, 'lib', $event)">
-            <input
-              v-if="canTake(f, 'lib')"
-              type="checkbox"
-              class="take"
-              :checked="taken(f).lib"
-              :title="`Use the ${SIDE_LABEL.lib} value`"
-              :aria-label="`Use the library value for ${f.name}`"
-              @change="take(f, 'lib', $event.target.checked, $event.target)"
-            />
+          <td
+            class="side"
+            :class="{ on: taken(f).lib, pick: canTake(f, 'lib') }"
+            :role="canTake(f, 'lib') ? 'button' : null"
+            :aria-pressed="canTake(f, 'lib') ? taken(f).lib : null"
+            :title="canTake(f, 'lib') ? `Click to use the ${SIDE_LABEL.lib} value; shift-click for only this side` : null"
+            @mousedown="onSideMousedown"
+            @click="onSideClick(f, 'lib', $event)"
+          >
             <FieldPreview v-if="settings.rendered" :html="f.lib" source="lib" />
             <template v-else>
               <DiffText :a="f.lib" :b="f.pkg" side="lib" />
               <MediaStrip :html="f.lib" source="lib" />
             </template>
           </td>
-          <td class="side" @dblclick="onSideDblclick(f, 'pkg', $event)">
-            <input
-              v-if="canTake(f, 'pkg')"
-              type="checkbox"
-              class="take"
-              :checked="taken(f).pkg"
-              :title="`Use the ${SIDE_LABEL.pkg} value`"
-              :aria-label="`Use the package value for ${f.name}`"
-              @change="take(f, 'pkg', $event.target.checked, $event.target)"
-            />
+          <td
+            class="side"
+            :class="{ on: taken(f).pkg, pick: canTake(f, 'pkg') }"
+            :role="canTake(f, 'pkg') ? 'button' : null"
+            :aria-pressed="canTake(f, 'pkg') ? taken(f).pkg : null"
+            :title="canTake(f, 'pkg') ? `Click to use the ${SIDE_LABEL.pkg} value; shift-click for only this side` : null"
+            @mousedown="onSideMousedown"
+            @click="onSideClick(f, 'pkg', $event)"
+          >
             <FieldPreview v-if="settings.rendered" :html="f.pkg" source="pkg" />
             <template v-else>
               <DiffText :a="f.lib" :b="f.pkg" side="pkg" />
