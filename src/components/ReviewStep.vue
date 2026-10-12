@@ -126,6 +126,6 @@ const move = (delta) => {
       </table>
     </div>
 
-    <button class="primary" @click="emit('done')">Continue to apply →</button>
+    <button class="primary" @click="emit('done')">Continue to preview →</button>
   </section>
 </template>

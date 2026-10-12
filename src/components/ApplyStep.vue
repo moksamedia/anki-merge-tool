@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { entryLabel } from '../lib/display.js'
 
+const emit = defineEmits(['preview'])
 const { state, settings, plan, applyMerge } = useMergeSession()
 
 const decksToCreate = computed(() => plan.value.decks.filter((d) => !state.libDecks.includes(d)))
@@ -70,6 +71,13 @@ const failures = computed(() => {
           </li>
         </ul>
       </div>
+      <p v-if="!state.previewed && !state.attempted" class="warn-text small">
+        You haven't opened the Preview for this analysis.
+        <button class="link" @click="emit('preview')">See every change first →</button>
+      </p>
+      <p v-else-if="!state.attempted" class="muted small">
+        <button class="link" @click="emit('preview')">Review the full preview</button>
+      </p>
       <p class="muted small">Close Anki's Browse window first — AnkiConnect can't update a note that's open in it.</p>
       <button
         class="primary"

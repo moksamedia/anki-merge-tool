@@ -40,12 +40,22 @@ async fn bridge(
     anki::bridge(&url, &method, &path, body, timeout_secs.unwrap_or(30)).await
 }
 
+/// Writes a text file the user chose in a save dialog (the dry-run report).
+#[tauri::command]
+async fn write_text_file(path: PathBuf, contents: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::write(&path, contents).map_err(|e| format!("Could not write {}: {e}", path.display()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![parse_apkg, read_media, anki_connect, bridge])
+        .invoke_handler(tauri::generate_handler![parse_apkg, read_media, anki_connect, bridge, write_text_file])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

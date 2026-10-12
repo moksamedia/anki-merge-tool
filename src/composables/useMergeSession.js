@@ -1,9 +1,10 @@
 import { computed, markRaw, reactive, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { open } from '@tauri-apps/plugin-dialog'
+import { open, save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { createAnkiClient } from '../lib/ankiClient.js'
 import { analyze, initialResolution, libraryFingerprint, selectMatches } from '../lib/match.js'
 import { buildPlan, createReport, defaultMergeTag, executePlan } from '../lib/applyMerge.js'
+import { buildDryRun } from '../lib/dryRun.js'
 import { defaultFieldMap, needsFieldMap, pairKey, reconcileFieldMap, savedPairKey, withNewFields } from '../lib/fieldMap.js'
 
 const DEFAULT_SETTINGS = {
@@ -86,6 +87,8 @@ const state = reactive({
   // Set on any apply attempt. A failed attempt may have written some notes, so
   // re-applying the same plan would duplicate them; analysis must be re-run.
   attempted: false,
+  // Whether the Preview step has been shown since the last analysis.
+  previewed: false,
 })
 
 watch(
@@ -181,6 +184,7 @@ async function openPackage(path = null) {
     state.report = null
     state.applied = false
     state.attempted = false
+    state.previewed = false
     await loadModelFields()
   })
 }
@@ -272,6 +276,7 @@ async function runAnalysis() {
     state.excluded = new Set()
     state.applied = false
     state.attempted = false
+    state.previewed = false
   })
 }
 
@@ -429,6 +434,48 @@ const plan = computed(() =>
     : null,
 )
 
+/** The dry-run report for the current plan; recomputed live as review decisions change. */
+const dryRun = computed(() =>
+  plan.value
+    ? buildDryRun({
+        pkg: state.pkg,
+        pkgPath: state.pkgPath,
+        settings,
+        entries: state.entries,
+        plan: plan.value,
+        resolutions: state.resolutions,
+        excluded: state.excluded,
+        libDecks: state.libDecks,
+        mapping: state.mapping,
+        fieldMaps: fieldPairs.value.map((p) => ({
+          package: p.notetype.name,
+          library: p.modelName,
+          packageFields: p.notetype.fields,
+          fieldMap: fieldMapOf(p),
+        })),
+      })
+    : null,
+)
+
+const dryRunJson = () => JSON.stringify(dryRun.value, null, 2)
+
+async function copyDryRun() {
+  await navigator.clipboard.writeText(dryRunJson())
+}
+
+/** Save the report via a save dialog. Returns the chosen path, or null if cancelled. */
+async function saveDryRun() {
+  const base = (state.pkgPath?.split(/[\\/]/).pop() ?? 'package').replace(/\.apkg$/i, '')
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-')
+  const path = await saveDialog({
+    defaultPath: `${base}-dry-run-${stamp}.json`,
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  })
+  if (!path) return null
+  await invoke('write_text_file', { path, contents: dryRunJson() })
+  return path
+}
+
 async function applyMerge() {
   state.applyLog = []
   state.report = createReport()
@@ -483,6 +530,9 @@ export function useMergeSession() {
     state,
     counts,
     plan,
+    dryRun,
+    copyDryRun,
+    saveDryRun,
     fieldPairs,
     fieldMapOf,
     libFieldsOf,

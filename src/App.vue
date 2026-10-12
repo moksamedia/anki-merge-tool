@@ -5,6 +5,7 @@ import ConnectStep from './components/ConnectStep.vue'
 import PackageStep from './components/PackageStep.vue'
 import ConfigureStep from './components/ConfigureStep.vue'
 import ReviewStep from './components/ReviewStep.vue'
+import PreviewStep from './components/PreviewStep.vue'
 import ApplyStep from './components/ApplyStep.vue'
 
 const { state } = useMergeSession()
@@ -16,6 +17,7 @@ const steps = computed(() => [
   { id: 'package', label: 'Package', enabled: connected.value },
   { id: 'configure', label: 'Configure', enabled: connected.value && !!state.pkg },
   { id: 'review', label: 'Review', enabled: state.entries.length > 0 },
+  { id: 'preview', label: 'Preview', enabled: state.entries.length > 0 },
   { id: 'apply', label: 'Apply', enabled: state.entries.length > 0 },
 ])
 </script>
@@ -46,8 +48,9 @@ const steps = computed(() => [
     </button>
     <PackageStep v-else-if="step === 'package'" @done="step = 'configure'" />
     <ConfigureStep v-else-if="step === 'configure'" @done="step = 'review'" />
-    <ReviewStep v-else-if="step === 'review'" @done="step = 'apply'" />
-    <ApplyStep v-else-if="step === 'apply'" />
+    <ReviewStep v-else-if="step === 'review'" @done="step = 'preview'" />
+    <PreviewStep v-else-if="step === 'preview'" @done="step = 'apply'" @back="step = 'review'" />
+    <ApplyStep v-else-if="step === 'apply'" @preview="step = 'preview'" />
   </main>
 </template>
 
