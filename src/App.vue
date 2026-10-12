@@ -186,7 +186,7 @@ input.inline { margin-left: 6px; width: 200px; }
 
 table.plain { width: 100%; border-collapse: collapse; }
 table.plain th, table.plain td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
-tr.excluded { opacity: 0.45; }
+tr.pending { opacity: 0.45; }
 
 .stats { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
 .stats > * { padding: 8px 14px; }

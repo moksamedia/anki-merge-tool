@@ -18,7 +18,7 @@ const REASON = { fill: 'fills empty field', package: 'package value', edited: 'e
 const SKIP_REASON = {
   undecided: 'conflict not decided',
   skipped: 'conflict skipped',
-  excluded: 'unticked in review',
+  'not accepted': 'not accepted in review',
   'no change': 'accepted, but nothing differs',
   merged: 'already merged in an earlier run',
 }
@@ -67,6 +67,11 @@ const tiles = computed(() => {
     { label: 'Fields added', value: s.fieldsCreated },
     { label: 'Media files', value: s.mediaFiles },
     { label: 'Left alone', value: r.value.skipped.length },
+    {
+      label: 'Not accepted',
+      value: s.notAccepted.new + s.notAccepted.auto,
+      warn: s.notAccepted.new + s.notAccepted.auto > 0,
+    },
     { label: 'Already merged', value: s.alreadyMerged },
     { label: 'Already identical', value: s.unchanged },
     { label: 'Warnings', value: s.warnings, warn: s.warnings > 0 },

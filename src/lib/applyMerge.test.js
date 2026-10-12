@@ -62,8 +62,11 @@ const resolutions = {
   c2: { status: 'skipped', values: { Front: 'keep' } },
 }
 
+// Merging is opt-in: these fixtures accept every new note and auto-merge they use.
+const ACCEPTED = new Set(['n1', 'n2', 'n3', 'a1', 'y', 'z'])
+
 const plan = () =>
-  buildPlan({ pkg, entries, resolutions, excluded: new Set(), targetDeck: 'Imported' })
+  buildPlan({ pkg, entries, resolutions, accepted: ACCEPTED, targetDeck: 'Imported' })
 
 describe('buildPlan', () => {
   it('collects only accepted conflicts and changed fields', () => {
@@ -93,7 +96,7 @@ describe('buildPlan', () => {
       fieldMap: { front: 'Front', BACK: 'Back', Notes: '' },
       pkgNote: { tags: [] },
     }
-    const p = buildPlan({ pkg, entries: [entry], resolutions: {}, excluded: new Set(), targetDeck: 'D' })
+    const p = buildPlan({ pkg, entries: [entry], resolutions: {}, accepted: ACCEPTED, targetDeck: 'D' })
     expect(p.newNotes[0].fields).toEqual({ front: 'f', BACK: 'b' })
   })
 
@@ -104,7 +107,7 @@ describe('buildPlan', () => {
       pkg,
       entries: [entries[0], second, orphan],
       resolutions,
-      excluded: new Set(),
+      accepted: ACCEPTED,
       deckMode: 'package',
       targetDeck: 'Fallback',
     })
@@ -129,7 +132,7 @@ describe('buildPlan', () => {
       pkg,
       entries: [...entries, untouched],
       resolutions,
-      excluded: new Set(),
+      accepted: ACCEPTED,
       targetDeck: 'D',
       mergeTag: ' merge run 1 ',
     })
@@ -143,7 +146,7 @@ describe('buildPlan', () => {
   })
 
   it('adds no merge tag when blank', () => {
-    const p = buildPlan({ pkg, entries, resolutions, excluded: new Set(), targetDeck: 'D', mergeTag: '  ' })
+    const p = buildPlan({ pkg, entries, resolutions, accepted: ACCEPTED, targetDeck: 'D', mergeTag: '  ' })
     expect(p.mergeTag).toBe('')
     expect(p.newNotes[0].tags).toEqual(['t'])
     expect(p.tagAdds).toEqual([{ guids: ['a1'], id: 100, tags: ['extra'] }])
@@ -160,16 +163,34 @@ describe('buildPlan', () => {
       pkgNote: { tags: [] },
     }
     const newFields = { Vocab: ['Extra', 'Unused'] }
-    const p = buildPlan({ pkg, entries: [entry], resolutions: {}, excluded: new Set(), targetDeck: 'D', newFields })
+    const p = buildPlan({ pkg, entries: [entry], resolutions: {}, accepted: ACCEPTED, targetDeck: 'D', newFields })
     expect(p.fieldsToCreate).toEqual([{ modelName: 'Vocab', fieldName: 'Extra' }])
     expect(p.newNotes[0].fields).toEqual({ Front: 'f', Extra: 'b' })
   })
 
   it('honours exclusions', () => {
-    const p = buildPlan({ pkg, entries, resolutions, excluded: new Set(['n1', 'a1']), targetDeck: 'D' })
+    // Excluded means "already merged": never written, even when accepted.
+    const p = buildPlan({ pkg, entries, resolutions, excluded: new Set(['n1', 'a1']), accepted: ACCEPTED, targetDeck: 'D' })
     expect(p.newNotes).toHaveLength(0)
     expect(p.modelsToCreate).toHaveLength(0)
     expect(p.updates.map((u) => u.guids)).toEqual([['c1']])
+  })
+})
+
+describe('buildPlan opt-in acceptance', () => {
+  it('writes no new notes or auto-merges unless accepted, but still writes accepted conflicts', () => {
+    const p = buildPlan({ pkg, entries, resolutions, targetDeck: 'D' })
+    expect(p.newNotes).toEqual([])
+    expect(p.updates.map((u) => u.guids)).toEqual([['c1']])
+    expect(p.tagAdds).toEqual([])
+    expect(p.modelsToCreate).toEqual([])
+    expect(p.media).toEqual([])
+  })
+
+  it('writes only the accepted ones', () => {
+    const second = { ...entries[0], guid: 'n2', pkgNote: { tags: [], deckId: 1 } }
+    const p = buildPlan({ pkg, entries: [entries[0], second], resolutions: {}, accepted: new Set(['n2']), targetDeck: 'D' })
+    expect(p.newNotes.map((n) => n.guid)).toEqual(['n2'])
   })
 })
 
@@ -196,7 +217,7 @@ describe('buildPlan with several package notes on one library note', () => {
     tagsToAdd: ['T'],
   })
   const build = (entries, resolutions = {}) =>
-    buildPlan({ pkg, entries, resolutions, excluded: new Set(), targetDeck: 'D' })
+    buildPlan({ pkg, entries, resolutions, accepted: ACCEPTED, targetDeck: 'D' })
 
   it('reports a collision when accepted results disagree on a field', () => {
     const p = build([conflictEntry('x', 'one'), conflictEntry('y', 'two')], {

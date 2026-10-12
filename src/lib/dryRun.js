@@ -30,7 +30,8 @@ function changeReason(entries, field, to) {
  * @param entries        output of analyze()
  * @param plan           output of buildPlan()
  * @param resolutions    {guid: {status, values}}
- * @param excluded       Set of excluded guids (including already-merged ones)
+ * @param excluded       Set of guids never written (the merged ledger)
+ * @param accepted       Set of accepted new-note and auto-merge guids (merging is opt-in)
  * @param merged         {guid: ledger entry} notes written by an earlier run
  * @param libDecks       existing library deck names
  * @param mapping        {pkgNotetypeId: {modelName, create}}
@@ -44,7 +45,8 @@ export function buildDryRun({
   entries,
   plan,
   resolutions,
-  excluded,
+  excluded = new Set(),
+  accepted = new Set(),
   merged = {},
   libDecks,
   mapping,
@@ -101,22 +103,24 @@ export function buildDryRun({
       continue
     }
     const status = resolutions[e.guid]?.status
-    const reason = merged[e.guid]
+    const optIn = e.kind === 'new' || e.kind === 'auto'
+    const reason = merged[e.guid] || excluded.has(e.guid)
       ? 'merged'
-      : excluded.has(e.guid)
-      ? 'excluded'
-      : e.kind === 'conflict' && status === 'skipped'
-        ? 'skipped'
-        : e.kind === 'conflict' && status !== 'accepted'
-          ? 'undecided'
-          : 'no change'
+      : optIn && !accepted.has(e.guid)
+        ? 'not accepted'
+        : e.kind === 'conflict' && status === 'skipped'
+          ? 'skipped'
+          : e.kind === 'conflict' && status !== 'accepted'
+            ? 'undecided'
+            : 'no change'
     skipped.push({ guid: e.guid, label: label(e, mainField), kind: e.kind, reason })
   }
 
   // ---- warnings ----------------------------------------------------------
+  // Only for notes this run writes; the rest aren't affected by the merge.
   const warnings = []
   for (const e of entries) {
-    if (excluded.has(e.guid)) continue
+    if (!writtenGuids.has(e.guid)) continue
     const l = label(e, mainField)
     if (e.ambiguous) warnings.push({ kind: 'ambiguous', guid: e.guid, label: l, detail: 'Several library notes share this main field; the first match is used.' })
     if (e.sharedWith?.length) warnings.push({ kind: 'shared', guid: e.guid, label: l, detail: `Matches the same library note as ${e.sharedWith.length} other package note(s).` })
@@ -202,7 +206,10 @@ export function buildDryRun({
     summary: {
       analysis: kinds,
       conflicts: conflictStatus,
-      excluded: [...excluded].filter((g) => !merged[g]).length,
+      notAccepted: {
+        new: skipped.filter((s) => s.reason === 'not accepted' && s.kind === 'new').length,
+        auto: skipped.filter((s) => s.reason === 'not accepted' && s.kind === 'auto').length,
+      },
       alreadyMerged: Object.keys(merged).length,
       notesAdded: newNotes.length,
       notesUpdated: plan.updates.length,

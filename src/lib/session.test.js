@@ -27,7 +27,7 @@ const state = {
     c2: { status: 'pending', lib: 'fp2', values: { Front: 'b' } },
     m1: { status: 'accepted', lib: 'fp3', values: { Front: 'c' } },
   },
-  excluded: new Set(['n2']),
+  accepted: new Set(['n2', 'm1']),
   merged: { m1: { at: 't', run: 1, kind: 'conflict', libNoteId: 300, fields: { Front: 'c' }, tags: [] } },
   runs: [{ at: 't', run: 1 }],
 }
@@ -45,7 +45,7 @@ describe('buildSession / restoreSession', () => {
     expect(record.package).toBe('/x/deck.apkg')
     expect(record.settings).toEqual({ mainField: 'Tibetan', ignoreGuid: false, autoFillEmpty: true })
     expect(Object.keys(record.decisions)).toEqual(['c1', 'c2'])
-    expect(record.excluded).toEqual(['n2'])
+    expect(record.accepted).toEqual(['n2']) // merged m1 dropped
 
     const parsed = parseSession(JSON.stringify(record))
     const restored = restoreSession(parsed, { pkg, libModels: ['Vocab'] })
@@ -57,7 +57,7 @@ describe('buildSession / restoreSession', () => {
     expect(restored.fieldMaps).toEqual(state.fieldMaps)
     expect(restored.newFields).toEqual(state.newFields)
     expect(restored.resolutions).toEqual({ c1: state.resolutions.c1, c2: state.resolutions.c2 })
-    expect(restored.excluded).toEqual(new Set(['n2']))
+    expect(restored.accepted).toEqual(new Set(['n2']))
     expect(restored.merged).toEqual(state.merged)
     expect(restored.runs).toEqual(state.runs)
   })
@@ -68,13 +68,18 @@ describe('buildSession / restoreSession', () => {
     expect(restored.mapping).toEqual({ 2: { modelName: 'Cloze', create: false } })
   })
 
+  it('restores a record saved before opt-in merging with nothing accepted', () => {
+    const old = { version: 1, decisions: {}, excluded: ['n2'] }
+    expect(restoreSession(old, { pkg, libModels: [] }).accepted).toEqual(new Set())
+  })
+
   it('tolerates a sparse or partly invalid record', () => {
     const restored = restoreSession({ version: 1, config: { deckMode: 'weird' } }, { pkg, libModels: [] })
     expect(restored.deckMode).toBeNull()
     expect(restored.targetDeck).toBeNull()
     expect(restored.mapping).toEqual({})
     expect(restored.resolutions).toEqual({})
-    expect(restored.excluded.size).toBe(0)
+    expect(restored.accepted.size).toBe(0)
     expect(restored.merged).toEqual({})
   })
 })
@@ -92,7 +97,7 @@ describe('parseSession', () => {
 describe('sessionSummary', () => {
   it('counts decided, pending and merged notes', () => {
     const record = buildSession({ state, settings, savedAt: 'now' })
-    expect(sessionSummary(record)).toEqual({ savedAt: 'now', decided: 1, pending: 1, merged: 1, runs: 1 })
+    expect(sessionSummary(record)).toEqual({ savedAt: 'now', decided: 1, pending: 1, accepted: 1, merged: 1, runs: 1 })
   })
 })
 

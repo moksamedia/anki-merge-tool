@@ -94,14 +94,16 @@ const resolutions = {
   skip1: { status: 'skipped', values: { Tibetan: 'ཆ', English: 'cha' } },
   undecided1: { status: 'pending', values: { Tibetan: 'ཇ', English: 'ja' } },
 }
-const excluded = new Set(['excl1'])
+// Merging is opt-in; 'excl1' (an auto-merge) is left unaccepted.
+const accepted = new Set(['new1', 'new2', 'fill1'])
 
-function report(overrides = {}) {
+function report(overrides = {}, { excluded = new Set(), merged = {} } = {}) {
   const plan = buildPlan({
     pkg,
     entries,
     resolutions,
     excluded,
+    accepted,
     deckMode: 'package',
     targetDeck: 'Fallback',
     mergeTag: 'merge_test',
@@ -115,6 +117,8 @@ function report(overrides = {}) {
     plan,
     resolutions,
     excluded,
+    accepted,
+    merged,
     libDecks: ['Ocean::1 Basics'],
     mapping: { 1: { modelName: 'Vocab', create: true } },
     generatedAt: '2026-10-12T00:00:00.000Z',
@@ -126,7 +130,8 @@ describe('buildDryRun', () => {
     const r = report()
     expect(r.summary.analysis).toEqual({ new: 2, identical: 1, auto: 2, conflict: 4 })
     expect(r.summary.conflicts).toEqual({ accepted: 2, skipped: 1, undecided: 1 })
-    expect(r.summary).toMatchObject({ excluded: 1, notesAdded: 2, notesUpdated: 3, fieldsChanged: 3, unchanged: 1 })
+    expect(r.summary.notAccepted).toEqual({ new: 0, auto: 1 })
+    expect(r.summary).toMatchObject({ notesAdded: 2, notesUpdated: 3, fieldsChanged: 3, unchanged: 1 })
     expect(r.package).toEqual({ path: '/tmp/Ocean.apkg', file: 'Ocean.apkg', format: 'anki21', notes: 7, mediaFiles: 2 })
   })
 
@@ -143,8 +148,29 @@ describe('buildDryRun', () => {
     expect(report().skipped).toEqual([
       { guid: 'skip1', label: 'ཆ', kind: 'conflict', reason: 'skipped' },
       { guid: 'undecided1', label: 'ཇ', kind: 'conflict', reason: 'undecided' },
-      { guid: 'excl1', label: 'ཏ', kind: 'auto', reason: 'excluded' },
+      { guid: 'excl1', label: 'ཏ', kind: 'auto', reason: 'not accepted' },
     ])
+  })
+
+  it('leaves every new note and auto-merge alone when nothing is accepted', () => {
+    const none = new Set()
+    const plan = buildPlan({ pkg, entries, resolutions, accepted: none, targetDeck: 'D' })
+    const r = buildDryRun({
+      pkg, pkgPath: '/tmp/Ocean.apkg', settings: { mainField: 'Tibetan' }, entries, plan, resolutions,
+      accepted: none, libDecks: [], mapping: {}, generatedAt: 'now',
+    })
+    expect(r.summary.notAccepted).toEqual({ new: 2, auto: 2 })
+    expect(r.summary).toMatchObject({ notesAdded: 0, notesUpdated: 2 }) // the two accepted conflicts only
+    expect(r.newNotes).toEqual([])
+    expect(r.skipped.filter((s) => s.reason === 'not accepted').map((s) => s.guid)).toEqual(['new1', 'new2', 'fill1', 'excl1'])
+    // No warnings for notes this run doesn't write: acc1 is ambiguous but still written.
+    expect(r.warnings.map((w) => w.guid)).toEqual(['acc1'])
+  })
+
+  it('reports already-merged notes as merged, even if accepted', () => {
+    const r = report({}, { excluded: new Set(['fill1']), merged: { fill1: { run: 1 } } })
+    expect(r.skipped).toContainEqual({ guid: 'fill1', label: 'ག', kind: 'auto', reason: 'merged' })
+    expect(r.updates.map((u) => u.libNoteId)).not.toContain(100)
   })
 
   it('reports decks, including which will be created', () => {

@@ -34,7 +34,8 @@ export function buildSession({ state, settings, savedAt = new Date().toISOString
       newFields: state.newFields,
     },
     decisions: Object.fromEntries(Object.entries(state.resolutions ?? {}).filter(([guid]) => !merged[guid])),
-    excluded: [...(state.excluded ?? [])],
+    // New notes and auto-merges the user accepted (merging is opt-in).
+    accepted: [...(state.accepted ?? [])].filter((guid) => !merged[guid]),
     merged,
     runs: state.runs ?? [],
   }
@@ -81,7 +82,9 @@ export function restoreSession(record, { pkg, libModels }) {
     fieldMaps: config.fieldMaps ?? {},
     newFields: config.newFields ?? {},
     resolutions: record.decisions ?? {},
-    excluded: new Set(record.excluded ?? []),
+    // Records saved before merging became opt-in hold `excluded` (unticked)
+    // instead; nothing in them was explicitly accepted, so they restore empty.
+    accepted: new Set(record.accepted ?? []),
     merged: record.merged ?? {},
     runs: record.runs ?? [],
   }
@@ -94,6 +97,7 @@ export function sessionSummary(record) {
     savedAt: record.savedAt ?? null,
     decided: decisions.filter((d) => d.status && d.status !== 'pending').length,
     pending: decisions.filter((d) => !d.status || d.status === 'pending').length,
+    accepted: (record.accepted ?? []).length,
     merged: Object.keys(record.merged ?? {}).length,
     runs: (record.runs ?? []).length,
   }

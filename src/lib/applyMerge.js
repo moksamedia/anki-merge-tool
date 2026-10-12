@@ -34,12 +34,16 @@ function desiredValues(entry, resolutions) {
  *
  * @param entries      output of analyze()
  * @param resolutions  {guid: {status, values}} for conflict entries
- * @param excluded     Set of guids the user excluded (auto-merges and new notes)
+ * @param excluded     Set of guids never to write, whatever their state (the
+ *                     merged ledger: notes an earlier run already wrote)
+ * @param accepted     Set of guids of new notes and auto-merges the user
+ *                     accepted. Merging is opt-in: a new note or auto-merge
+ *                     outside this set is left alone, like an unaccepted conflict.
  * @param deckMode     'package': each new note goes to the deck it had in the
  *                     package (created if missing); 'single': all go to targetDeck
  * @param mergeTag     tag added to every note the merge writes ('' for none)
  */
-export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'single', targetDeck, mergeTag = '', newFields = {} }) {
+export function buildPlan({ pkg, entries, resolutions, excluded = new Set(), accepted = new Set(), deckMode = 'single', targetDeck, mergeTag = '', newFields = {} }) {
   const newNotes = []
   const tag = sanitizeTag(mergeTag)
   const pkgDeckNames = new Map((pkg.decks ?? []).map((d) => [d.id, d.name]))
@@ -51,6 +55,7 @@ export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'sin
 
   for (const entry of entries) {
     if (excluded.has(entry.guid)) continue
+    if ((entry.kind === 'new' || entry.kind === 'auto') && !accepted.has(entry.guid)) continue
 
     if (entry.kind === 'new') {
       const { modelName, create } = entry.target

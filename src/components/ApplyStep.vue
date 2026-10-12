@@ -16,9 +16,16 @@ const libLabelOf = (id) => {
   return entry ? labelOf(entry.guid) : `note ${id}`
 }
 
-const pending = computed(
-  () => Object.values(state.resolutions).filter((r) => r.status === 'pending').length,
-)
+// Open notes this run leaves alone because they aren't accepted (merging is opt-in).
+const notAccepted = computed(() => {
+  const c = counts.value
+  const parts = [
+    [c.new - c.accepted.new, 'new note'],
+    [c.auto - c.accepted.auto, 'auto-merge'],
+    [c.conflict - c.accepted.conflict, 'conflict'],
+  ].filter(([n]) => n > 0)
+  return parts.map(([n, word]) => `${n} ${word}${n === 1 ? '' : 's'}`)
+})
 // Package notes this run writes: added, updated or tagged.
 const toWrite = computed(
   () =>
@@ -60,8 +67,9 @@ const when = (iso) => new Date(iso).toLocaleString()
         <li>Copy <b>{{ plan.media.length }}</b> media files (existing differing files are kept; ours are renamed)</li>
         <li v-if="counts.merged">Leave alone <b>{{ counts.merged }}</b> notes already merged in earlier runs</li>
       </ul>
-      <p v-if="pending" class="warn-text">
-        {{ pending }} conflict(s) are still undecided and will be skipped. Decide them later and merge again.
+      <p v-if="notAccepted.length" class="warn-text">
+        {{ notAccepted.length > 1 ? notAccepted.slice(0, -1).join(', ') + ' and ' + notAccepted.at(-1) : notAccepted[0] }}
+        aren't accepted and will be left alone. Accept them in Review and merge again later.
       </p>
       <div v-if="plan.collisions.length" class="error">
         <b>{{ plan.collisions.length }} field(s) where package notes disagree about the same library note.</b>
@@ -89,7 +97,7 @@ const when = (iso) => new Date(iso).toLocaleString()
         <template v-else>Back up &amp; merge {{ toWrite }} note{{ toWrite === 1 ? '' : 's' }}</template>
       </button>
       <p v-if="nothingToDo && !state.busy" class="muted small">
-        Approve more notes in Review — accept conflicts, or tick auto-merges and new notes — and come back.
+        Nothing accepted yet — accept notes in Review (tick new notes and auto-merges, accept conflicts) and come back.
       </p>
     </div>
 

@@ -26,6 +26,7 @@ const when = (iso) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'medi
 function summaryText(s) {
   const parts = []
   if (s.merged) parts.push(`${s.merged} merged`)
+  if (s.accepted) parts.push(`${s.accepted} accepted`)
   if (s.decided) parts.push(`${s.decided} decided`)
   if (s.pending) parts.push(`${s.pending} undecided`)
   return parts.join(' · ') || 'started'

@@ -79,7 +79,9 @@ const state = reactive({
   libNotes: [],
   entries: [],
   resolutions: {},
-  excluded: new Set(),
+  // New notes and auto-merges the user accepted. Merging is opt-in: nothing
+  // outside this set (or, for conflicts, an accepted resolution) is written.
+  accepted: new Set(),
   // When the entries were last analyzed, so merged notes know whether their
   // entry reflects the library after the merge.
   analyzedAt: null,
@@ -127,7 +129,7 @@ function scheduleSave() {
 watch(
   () => [
     state.resolutions,
-    state.excluded,
+    state.accepted,
     state.merged,
     state.runs,
     state.mapping,
@@ -252,7 +254,7 @@ async function openPackage(path = null) {
       state.libNotes = []
       state.entries = []
       state.resolutions = {}
-      state.excluded = new Set()
+      state.accepted = new Set()
       state.analyzedAt = null
       state.merged = {}
       state.runs = []
@@ -281,7 +283,8 @@ function restoreSaved(record) {
   state.newFields = r.newFields
   // Decisions are raw until analysis checks them against the library (savedResolution).
   state.resolutions = r.resolutions
-  state.excluded = r.excluded
+  // Raw until analysis keeps only guids that are still new notes or auto-merges (classify).
+  state.accepted = r.accepted
   state.merged = r.merged
   state.runs = r.runs
   state.session = { path: sessionPath(state.pkgPath), restored: true, savedAt: record.savedAt ?? null }
@@ -434,6 +437,39 @@ function classify(previous) {
       .map((e) => [e.guid, savedResolution(previous[e.guid], e)]),
   )
   state.entries = entries
+  // An acceptance only holds while the note is still a new note or an
+  // auto-merge: one that now matches, now conflicts or is merged drops out.
+  const optIn = new Set(
+    entries.filter((e) => (e.kind === 'new' || e.kind === 'auto') && !state.merged[e.guid]).map((e) => e.guid),
+  )
+  const kept = [...state.accepted].filter((guid) => optIn.has(guid))
+  if (kept.length !== state.accepted.size) state.accepted = new Set(kept)
+}
+
+/** Guids of open (not yet merged) entries of a kind that can be accepted in bulk. */
+function openGuids(kinds) {
+  return state.entries.filter((e) => kinds.includes(e.kind) && !state.merged[e.guid]).map((e) => e.guid)
+}
+
+/** Accept every open entry of `kind` ('new' | 'auto'). */
+function acceptAll(kind) {
+  state.accepted = new Set([...state.accepted, ...openGuids([kind])])
+}
+
+/** Withdraw acceptance from every entry of `kind`. */
+function clearAll(kind) {
+  const drop = new Set(openGuids([kind]))
+  state.accepted = new Set([...state.accepted].filter((guid) => !drop.has(guid)))
+}
+
+/** Accept every new note and auto-merge: everything that has no conflict to decide. */
+function acceptAllWithoutConflict() {
+  state.accepted = new Set([...state.accepted, ...openGuids(['new', 'auto'])])
+}
+
+function setAccepted(guid, on) {
+  if (on) state.accepted.add(guid)
+  else state.accepted.delete(guid)
 }
 
 /**
@@ -520,13 +556,20 @@ function savedResolution(saved, entry) {
 
 /** Counts of what is still open; merged notes are counted once, under `merged`. */
 const counts = computed(() => {
-  const c = { new: 0, identical: 0, auto: 0, conflict: 0, merged: 0, ambiguous: 0, shared: 0, dropped: 0 }
+  const c = {
+    new: 0, identical: 0, auto: 0, conflict: 0, merged: 0, ambiguous: 0, shared: 0, dropped: 0,
+    // Accepted per kind: ticked new notes and auto-merges, accepted conflicts.
+    accepted: { new: 0, auto: 0, conflict: 0 },
+  }
   for (const e of state.entries) {
     if (state.merged[e.guid]) {
       c.merged++
       continue
     }
     c[e.kind]++
+    if (e.kind === 'conflict' ? state.resolutions[e.guid]?.status === 'accepted' : state.accepted.has(e.guid)) {
+      if (e.kind in c.accepted) c.accepted[e.kind]++
+    }
     if (e.ambiguous) c.ambiguous++
     if (e.sharedWith?.length) c.shared++
     if (e.dropped?.length) c.dropped++
@@ -534,8 +577,8 @@ const counts = computed(() => {
   return c
 })
 
-/** Guids the plan must leave alone: unticked by the user, or already merged. */
-const skipped = computed(() => new Set([...state.excluded, ...Object.keys(state.merged)]))
+/** Guids the plan must never write: already merged by an earlier run. */
+const skipped = computed(() => new Set(Object.keys(state.merged)))
 
 const plan = computed(() =>
   state.entries.length
@@ -544,6 +587,7 @@ const plan = computed(() =>
         entries: state.entries,
         resolutions: state.resolutions,
         excluded: skipped.value,
+        accepted: state.accepted,
         deckMode: state.deckMode,
         targetDeck: state.targetDeck,
         mergeTag: state.mergeTag,
@@ -563,6 +607,7 @@ const dryRun = computed(() =>
         plan: plan.value,
         resolutions: state.resolutions,
         excluded: skipped.value,
+        accepted: state.accepted,
         merged: state.merged,
         libDecks: state.libDecks,
         mapping: state.mapping,
@@ -694,6 +739,10 @@ export function useMergeSession() {
     setNoteTypeTarget,
     loadModelFields,
     runAnalysis,
+    acceptAll,
+    clearAll,
+    acceptAllWithoutConflict,
+    setAccepted,
     applyMerge,
     resolveMedia,
     fieldFont,
