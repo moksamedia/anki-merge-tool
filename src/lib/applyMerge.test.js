@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { applyRenames, buildPlan, executePlan } from './applyMerge.js'
+import { applyRenames, buildPlan, defaultMergeTag, executePlan, sanitizeTag } from './applyMerge.js'
 
 const notetype = {
   id: 1,
@@ -117,6 +117,38 @@ describe('buildPlan', () => {
     expect(plan().decks).toEqual(['Imported'])
   })
 
+  it('adds the merge tag to every written note and nothing else', () => {
+    const untouched = {
+      kind: 'identical',
+      guid: 'same',
+      libNote: { id: 900 },
+      fields: [{ name: 'Front', lib: 'x', pkg: 'x', status: 'same' }],
+      tagsToAdd: [],
+    }
+    const p = buildPlan({
+      pkg,
+      entries: [...entries, untouched],
+      resolutions,
+      excluded: new Set(),
+      targetDeck: 'D',
+      mergeTag: ' merge run 1 ',
+    })
+    expect(p.mergeTag).toBe('merge_run_1')
+    expect(p.newNotes[0].tags).toEqual(['t', 'merge_run_1'])
+    // a1: fill + its own tag; c1: field update only → tag entry created; c2 skipped, 'same' untouched.
+    expect(p.tagAdds).toEqual([
+      { guids: ['a1'], id: 100, tags: ['extra', 'merge_run_1'] },
+      { guids: ['c1'], id: 200, tags: ['merge_run_1'] },
+    ])
+  })
+
+  it('adds no merge tag when blank', () => {
+    const p = buildPlan({ pkg, entries, resolutions, excluded: new Set(), targetDeck: 'D', mergeTag: '  ' })
+    expect(p.mergeTag).toBe('')
+    expect(p.newNotes[0].tags).toEqual(['t'])
+    expect(p.tagAdds).toEqual([{ guids: ['a1'], id: 100, tags: ['extra'] }])
+  })
+
   it('honours exclusions', () => {
     const p = buildPlan({ pkg, entries, resolutions, excluded: new Set(['n1', 'a1']), targetDeck: 'D' })
     expect(p.newNotes).toHaveLength(0)
@@ -189,6 +221,16 @@ describe('buildPlan with several package notes on one library note', () => {
     })
     expect(p.collisions).toEqual([])
     expect(p.updates).toEqual([{ guids: ['x'], id: 500, fields: { Front: 'one' } }])
+  })
+})
+
+describe('merge tag helpers', () => {
+  it('formats the default tag without spaces or colons', () => {
+    expect(defaultMergeTag(new Date(2026, 9, 12, 14, 5))).toBe('merge_2026-10-12_1405')
+  })
+  it('sanitizes typed tags', () => {
+    expect(sanitizeTag('  my  tag ')).toBe('my_tag')
+    expect(sanitizeTag('')).toBe('')
   })
 })
 

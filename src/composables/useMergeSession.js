@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { createAnkiClient } from '../lib/ankiClient.js'
 import { analyze, initialResolution, libraryFingerprint, selectMatches } from '../lib/match.js'
-import { buildPlan, createReport, executePlan } from '../lib/applyMerge.js'
+import { buildPlan, createReport, defaultMergeTag, executePlan } from '../lib/applyMerge.js'
 import { defaultFieldMap, needsFieldMap, pairKey, reconcileFieldMap, savedPairKey } from '../lib/fieldMap.js'
 
 const DEFAULT_SETTINGS = {
@@ -55,6 +55,8 @@ const state = reactive({
   // 'package' keeps each new note in its package deck; 'single' sends all to targetDeck.
   deckMode: 'single',
   targetDeck: '',
+  // Added to every note the merge writes; blank disables it.
+  mergeTag: '',
   busy: false,
   progress: '',
   error: null,
@@ -151,6 +153,7 @@ async function openPackage() {
     state.libDecks = decks.sort()
     state.targetDeck = dominantDeck(pkg)
     state.deckMode = noteDeckCount(pkg) > 1 ? 'package' : 'single'
+    state.mergeTag = defaultMergeTag()
     state.mapping = Object.fromEntries(
       pkg.notetypes.map((nt) => [nt.id, { modelName: nt.name, create: !models.includes(nt.name) }]),
     )
@@ -329,6 +332,7 @@ const plan = computed(() =>
         excluded: state.excluded,
         deckMode: state.deckMode,
         targetDeck: state.targetDeck,
+        mergeTag: state.mergeTag,
       })
     : null,
 )

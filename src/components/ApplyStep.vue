@@ -50,6 +50,7 @@ const failures = computed(() => {
         </li>
         <li>Update fields on <b>{{ plan.updates.length }}</b> notes</li>
         <li>Add tags to <b>{{ plan.tagAdds.length }}</b> notes</li>
+        <li v-if="plan.mergeTag">Tag every written note with <code>{{ plan.mergeTag }}</code></li>
         <li>Copy <b>{{ plan.media.length }}</b> media files (existing differing files are kept; ours are renamed)</li>
       </ul>
       <p v-if="pending" class="warn-text">{{ pending }} conflict(s) are still undecided and will be skipped.</p>

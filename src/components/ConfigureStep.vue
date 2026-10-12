@@ -3,6 +3,7 @@ import { computed, reactive } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { mainFieldName, namedFields } from '../lib/match.js'
 import { needsFieldMap, pairKey, unmappedFields } from '../lib/fieldMap.js'
+import { sanitizeTag } from '../lib/applyMerge.js'
 import FieldMapTable from './FieldMapTable.vue'
 
 const emit = defineEmits(['done'])
@@ -68,6 +69,8 @@ const rows = computed(() =>
 )
 
 const createNameTaken = (nt) => state.mapping[nt.id].create && state.libModels.includes(state.mapping[nt.id].modelName)
+
+const mergeTagPreview = computed(() => sanitizeTag(state.mergeTag))
 
 const pkgDeckCount = computed(() => new Set(state.pkg.notes.map((n) => n.deckId)).size)
 const newDecks = computed(() => {
@@ -141,6 +144,17 @@ async function analyze() {
           {{ state.libDecks.includes(state.targetDeck) ? 'Existing deck.' : 'Will be created.' }}
         </p>
         <p class="muted small">Only new notes are placed; updated notes keep their current deck.</p>
+      </div>
+      <div class="card">
+        <h3>Merge tag</h3>
+        <label>
+          Tag for every note this merge writes
+          <input v-model="state.mergeTag" spellcheck="false" placeholder="(none)" />
+        </label>
+        <p class="muted small">
+          Added to new notes and to notes whose fields or tags change, so you can find everything from this run in Anki
+          with <code>tag:{{ mergeTagPreview || '…' }}</code>. Untouched notes don't get it. Leave blank for no tag.
+        </p>
       </div>
     </div>
 

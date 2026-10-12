@@ -37,9 +37,11 @@ function desiredValues(entry, resolutions) {
  * @param excluded     Set of guids the user excluded (auto-merges and new notes)
  * @param deckMode     'package': each new note goes to the deck it had in the
  *                     package (created if missing); 'single': all go to targetDeck
+ * @param mergeTag     tag added to every note the merge writes ('' for none)
  */
-export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'single', targetDeck }) {
+export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'single', targetDeck, mergeTag = '' }) {
   const newNotes = []
+  const tag = sanitizeTag(mergeTag)
   const pkgDeckNames = new Map((pkg.decks ?? []).map((d) => [d.id, d.name]))
   const deckFor = (entry) =>
     (deckMode === 'package' && pkgDeckNames.get(entry.pkgNote.deckId)) || targetDeck
@@ -55,7 +57,10 @@ export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'sin
       // A created model is the package's own note type, so fields carry over as-is.
       const fields = create ? { ...entry.pkgFields } : mapFields(entry.pkgFields, entry.fieldMap)
       if (create) modelsUsed.set(modelName, entry.notetype)
-      newNotes.push({ guid: entry.guid, deckName: deckFor(entry), modelName, fields, tags: entry.pkgNote.tags })
+      const tags = tag && !entry.pkgNote.tags.some((t) => t.toLowerCase() === tag.toLowerCase())
+        ? [...entry.pkgNote.tags, tag]
+        : entry.pkgNote.tags
+      newNotes.push({ guid: entry.guid, deckName: deckFor(entry), modelName, fields, tags })
       continue
     }
 
@@ -89,7 +94,10 @@ export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'sin
         .filter(([name, w]) => w.value !== t.lib[name])
         .map(([name, w]) => [name, w.value]),
     )
-    if (Object.keys(fields).length) updates.push({ guids: t.guids, id: t.id, fields })
+    const changed = Object.keys(fields).length > 0
+    if (changed) updates.push({ guids: t.guids, id: t.id, fields })
+    // Only notes the merge actually touches get the merge tag.
+    if (tag && (changed || t.tags.size)) t.tags.set(tag.toLowerCase(), tag)
     if (t.tags.size) tagAdds.push({ guids: t.guids, id: t.id, tags: [...t.tags.values()] })
   }
 
@@ -112,7 +120,18 @@ export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'sin
   for (const name of pkg.media) if (name.startsWith('_') && modelText.includes(name)) media.add(name)
 
   const decks = [...new Set(newNotes.map((n) => n.deckName))].sort()
-  return { deckMode, targetDeck, decks, modelsToCreate, media: [...media], newNotes, updates, tagAdds, collisions: [...collisions.values()] }
+  return { deckMode, targetDeck, decks, mergeTag: tag, modelsToCreate, media: [...media], newNotes, updates, tagAdds, collisions: [...collisions.values()] }
+}
+
+/** Anki tags can't contain spaces; a merge tag typed with spaces is joined with underscores. */
+export function sanitizeTag(tag) {
+  return (tag ?? '').trim().replace(/\s+/g, '_')
+}
+
+/** Default merge tag for a run started now: merge_2026-10-12_1432. */
+export function defaultMergeTag(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `merge_${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}`
 }
 
 /** Rewrite references to media files Anki stored under a different name. */

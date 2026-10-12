@@ -22,6 +22,7 @@ No CORS setup is needed, because all HTTP calls go through the Rust side.
 2. **Package:** pick an `.apkg` file. All formats are supported: `anki21b` (zstd + protobuf media map), `anki21` and `anki2`.
 3. **Configure:**
    - The main field (default `Tibetan`).
+   - A merge tag (default `merge_<date>_<time>`) added to every note the merge writes — new notes and notes whose fields or tags change — so one `tag:` search in Anki finds the whole run. Blank disables it.
    - Where new notes go: each note's own package deck (the default when the package has several decks; missing decks are created, parents included), or one target deck for all of them.
    - Which library note type each package note type maps to: an existing one (fields matched by name) or a newly created one. When the two don't line up, the row shows which package fields won't be imported and offers **Map fields ▸**. That opens an optional field map, described under Review, with rows colored green for same name, yellow for a different name and red for no match.
 4. **Analyze and review:**
