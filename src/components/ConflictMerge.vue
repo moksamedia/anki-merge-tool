@@ -19,7 +19,6 @@ const props = defineProps({
 const emit = defineEmits(['prev', 'next'])
 
 const { state, settings, fieldFont } = useMergeSession()
-const rendered = ref(false)
 const showSame = ref(false)
 
 const resolution = computed(() => state.resolutions[props.entry.guid])
@@ -94,7 +93,7 @@ function onKey(e) {
     ArrowRight: () => emit('next'),
     k: () => emit('prev'),
     ArrowLeft: () => emit('prev'),
-    r: () => (rendered.value = !rendered.value),
+    r: () => (settings.rendered = !settings.rendered),
     e: () => setAllModes(settings.resultMode === 'code' ? 'editor' : 'code'),
   }
   if (actions[e.key]) {
@@ -121,7 +120,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         <span class="badge" :class="resolution.status">{{ resolution.status }}</span>
       </div>
       <div class="row">
-        <label class="toggle"><input v-model="rendered" type="checkbox" /> Rendered (R)</label>
+        <label class="toggle"><input v-model="settings.rendered" type="checkbox" /> Rendered (R)</label>
         <ModeSwitch :model-value="settings.resultMode" label="All Result cells (E)" @update:model-value="setAllModes" />
         <button :disabled="index === 0" @click="emit('prev')">← Prev</button>
         <span class="muted">{{ index + 1 }} / {{ total }}</span>
@@ -151,7 +150,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
               :aria-label="`Use the library value for ${f.name}`"
               @change="take(f, 'lib', $event.target.checked, $event.target)"
             />
-            <FieldPreview v-if="rendered" :html="f.lib" source="lib" />
+            <FieldPreview v-if="settings.rendered" :html="f.lib" source="lib" />
             <template v-else>
               <DiffText :a="f.lib" :b="f.pkg" side="lib" />
               <MediaStrip :html="f.lib" source="lib" />
@@ -167,7 +166,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
               :aria-label="`Use the package value for ${f.name}`"
               @change="take(f, 'pkg', $event.target.checked, $event.target)"
             />
-            <FieldPreview v-if="rendered" :html="f.pkg" source="pkg" />
+            <FieldPreview v-if="settings.rendered" :html="f.pkg" source="pkg" />
             <template v-else>
               <DiffText :a="f.lib" :b="f.pkg" side="pkg" />
               <MediaStrip :html="f.pkg" source="pkg" />
@@ -181,7 +180,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             </template>
             <template v-else>
               <textarea v-model="resolution.values[f.name]" :rows="rows(resolution.values[f.name])" spellcheck="false"></textarea>
-              <FieldPreview v-if="rendered" :html="resolution.values[f.name]" source="result" />
+              <FieldPreview v-if="settings.rendered" :html="resolution.values[f.name]" source="result" />
               <MediaStrip v-else :html="resolution.values[f.name]" source="result" />
             </template>
           </td>

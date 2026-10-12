@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { entryLabel } from '../lib/display.js'
 import { normalizeValue } from '../lib/match.js'
@@ -12,7 +12,6 @@ const props = defineProps({
 })
 
 const { state, settings } = useMergeSession()
-const rendered = ref(true)
 
 const merged = computed(() => state.merged[props.entry.guid])
 const KIND_LABEL = { new: 'added', auto: 'auto-merged', conflict: 'merged after review' }
@@ -42,7 +41,7 @@ const fields = computed(() => Object.entries(merged.value.fields ?? {}))
         <span v-if="gone" class="badge warn">no longer in the library</span>
       </div>
       <div class="row">
-        <label class="toggle"><input v-model="rendered" type="checkbox" /> Rendered</label>
+        <label class="toggle"><input v-model="settings.rendered" type="checkbox" /> Rendered</label>
       </div>
     </header>
 
@@ -60,7 +59,7 @@ const fields = computed(() => Object.entries(merged.value.fields ?? {}))
             <template v-for="(part, i) in name.split(/(?<=_)/)" :key="i">{{ part }}<wbr /></template>
           </th>
           <td>
-            <FieldPreview v-if="rendered" :html="value" source="result" />
+            <FieldPreview v-if="settings.rendered" :html="value" source="result" />
             <template v-else>
               <div class="raw">{{ value || '' }}<span v-if="!value" class="empty">(empty)</span></div>
               <MediaStrip :html="value" source="result" />

@@ -16,6 +16,8 @@ const DEFAULT_SETTINGS = {
   ignoreGuid: false,
   // How Result cells are edited: 'code' (raw HTML) or 'editor' (like Anki's field editor).
   resultMode: 'code',
+  // Whether field cells in the review show rendered HTML instead of the raw diff.
+  rendered: false,
 }
 
 function load(key, fallback) {
