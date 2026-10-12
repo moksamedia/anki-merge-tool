@@ -6,6 +6,7 @@ import { analyze, initialResolution, libraryFingerprint, selectMatches } from '.
 import { buildPlan, createReport, defaultMergeTag, executePlan } from '../lib/applyMerge.js'
 import { buildDryRun } from '../lib/dryRun.js'
 import { defaultFieldMap, needsFieldMap, pairKey, reconcileFieldMap, savedPairKey, withNewFields } from '../lib/fieldMap.js'
+import { buildSession, mergedFromRun, mergedMatches, parseSession, restoreSession, sessionPath, sessionSummary } from '../lib/session.js'
 
 const DEFAULT_SETTINGS = {
   ankiConnectUrl: 'http://127.0.0.1:8765',
@@ -35,8 +36,6 @@ function save(key, value) {
     // Storage is a convenience only; the session works without it.
   }
 }
-
-const reviewKey = (path) => `review:${path}`
 
 // Module-level singleton: every component shares one merge session.
 const settings = reactive(load('settings', DEFAULT_SETTINGS))
@@ -81,23 +80,89 @@ const state = reactive({
   entries: [],
   resolutions: {},
   excluded: new Set(),
+  // When the entries were last analyzed, so merged notes know whether their
+  // entry reflects the library after the merge.
+  analyzedAt: null,
+  // The ledger: {guid: {at, run, kind, libNoteId, fields, tags, ...}} for every
+  // package note a run has written. Merged notes are read-only and never re-merged.
+  merged: {},
+  // One summary per Apply run, oldest first.
+  runs: [],
   applyLog: [],
   report: null,
-  applied: false,
-  // Set on any apply attempt. A failed attempt may have written some notes, so
-  // re-applying the same plan would duplicate them; analysis must be re-run.
-  attempted: false,
+  // The session file next to the package: whether one was found, and when it was last written.
+  session: { path: null, restored: false, savedAt: null },
   // Whether the Preview step has been shown since the last analysis.
   previewed: false,
 })
 
+// ---- session file -------------------------------------------------------
+// Everything a review needs to be resumed is written next to the package as
+// soon as analysis has run, then on every change (debounced).
+
+let restoring = false
+let saveTimer = null
+
+function sessionSnapshot() {
+  return JSON.stringify(buildSession({ state, settings }), null, 2)
+}
+
+async function saveSession() {
+  if (!state.pkgPath || !state.entries.length) return
+  const path = sessionPath(state.pkgPath)
+  try {
+    await invoke('write_text_file', { path, contents: sessionSnapshot() })
+    state.session = { path, restored: true, savedAt: new Date().toISOString() }
+  } catch (e) {
+    state.error = `Could not save the merge session: ${e}`
+  }
+}
+
+function scheduleSave() {
+  if (restoring) return
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(saveSession, 300)
+}
+
 watch(
-  () => state.resolutions,
-  (resolutions) => {
-    if (state.pkgPath && state.entries.length) save(reviewKey(state.pkgPath), resolutions)
-  },
+  () => [
+    state.resolutions,
+    state.excluded,
+    state.merged,
+    state.runs,
+    state.mapping,
+    state.fieldMaps,
+    state.newFields,
+    state.deckMode,
+    state.targetDeck,
+    state.mergeTag,
+    settings.mainField,
+    settings.ignoreGuid,
+    settings.autoFillEmpty,
+  ],
+  scheduleSave,
   { deep: true },
 )
+
+/** Read a package's session file, or null if there is none (or it is unusable). */
+async function readSession(pkgPath) {
+  const text = await invoke('read_text_file', { path: sessionPath(pkgPath) })
+  return parseSession(text)
+}
+
+/** Summaries of saved sessions for the Recent list: {path: summary}, only for packages that have one. */
+async function peekSessions(paths) {
+  const out = {}
+  for (const path of paths) {
+    try {
+      const record = await readSession(path)
+      if (record) out[path] = sessionSummary(record)
+    } catch {
+      // No summary for a file we can't read; the package itself may still open.
+    }
+  }
+  return out
+}
 
 async function run(task) {
   state.busy = true
@@ -164,29 +229,70 @@ async function openPackage(path = null) {
     state.progress = 'Reading package…'
     const pkg = await invoke('parse_apkg', { path })
     const [models, decks] = await Promise.all([client.modelNames(), client.deckNames()])
+    // An unreadable session file shouldn't stop the package opening; say so and start fresh.
+    const saved = await readSession(path).catch((e) => {
+      state.error = `${e} — starting without the saved session.`
+      return null
+    })
 
-    state.pkgPath = path
-    state.pkg = pkg
-    state.libModels = models.sort()
-    state.libDecks = decks.sort()
-    state.targetDeck = dominantDeck(pkg)
-    state.deckMode = noteDeckCount(pkg) > 1 ? 'package' : 'single'
-    state.mergeTag = defaultMergeTag()
-    state.mapping = Object.fromEntries(pkg.notetypes.map((nt) => [nt.id, initialTarget(nt, models)]))
-    rememberRecent(path)
-    state.fieldMaps = {}
-    state.newFields = {}
-    state.matches = null
-    state.libNotes = []
-    state.entries = []
-    state.resolutions = {}
-    state.excluded = new Set()
-    state.report = null
-    state.applied = false
-    state.attempted = false
-    state.previewed = false
-    await loadModelFields()
+    restoring = true
+    try {
+      state.pkgPath = path
+      state.pkg = pkg
+      state.libModels = models.sort()
+      state.libDecks = decks.sort()
+      state.targetDeck = dominantDeck(pkg)
+      state.deckMode = noteDeckCount(pkg) > 1 ? 'package' : 'single'
+      state.mergeTag = defaultMergeTag()
+      state.mapping = Object.fromEntries(pkg.notetypes.map((nt) => [nt.id, initialTarget(nt, models)]))
+      rememberRecent(path)
+      state.fieldMaps = {}
+      state.newFields = {}
+      state.matches = null
+      state.libNotes = []
+      state.entries = []
+      state.resolutions = {}
+      state.excluded = new Set()
+      state.analyzedAt = null
+      state.merged = {}
+      state.runs = []
+      state.report = null
+      state.previewed = false
+      state.session = { path: sessionPath(path), restored: false, savedAt: null }
+      if (saved) restoreSaved(saved)
+      await loadModelFields()
+    } finally {
+      restoring = false
+    }
   })
+}
+
+/** Put a saved session's choices, decisions and ledger back into the state. */
+function restoreSaved(record) {
+  const r = restoreSession(record, { pkg: state.pkg, libModels: state.libModels })
+  if (r.settings.mainField) settings.mainField = r.settings.mainField
+  if (r.settings.ignoreGuid != null) settings.ignoreGuid = r.settings.ignoreGuid
+  if (r.settings.autoFillEmpty != null) settings.autoFillEmpty = r.settings.autoFillEmpty
+  if (r.deckMode) state.deckMode = r.deckMode
+  if (r.targetDeck) state.targetDeck = r.targetDeck
+  if (r.mergeTag != null) state.mergeTag = r.mergeTag
+  Object.assign(state.mapping, r.mapping)
+  state.fieldMaps = r.fieldMaps
+  state.newFields = r.newFields
+  // Decisions are raw until analysis checks them against the library (savedResolution).
+  state.resolutions = r.resolutions
+  state.excluded = r.excluded
+  state.merged = r.merged
+  state.runs = r.runs
+  state.session = { path: sessionPath(state.pkgPath), restored: true, savedAt: record.savedAt ?? null }
+}
+
+/** Open a package with a saved session and go straight to its review. True when analysis ran. */
+async function resumeSession(path) {
+  await openPackage(path)
+  if (!state.pkg || state.error) return false
+  await runAnalysis()
+  return state.entries.length > 0 && !state.error
 }
 
 /**
@@ -262,7 +368,9 @@ async function runAnalysis() {
     // is avoided: on large libraries it exhausts its search-cursor cache.
     state.progress = 'Reading library field values…'
     const records = await client.fieldValues(settings.mainField || '')
-    const matches = selectMatches({ pkg, guidMap, records, mapping: state.mapping, settings })
+    // Notes an earlier run wrote are found through the ledger: an added note
+    // has a fresh GUID in Anki, so neither GUID nor main field is reliable.
+    const matches = mergedMatches(selectMatches({ pkg, guidMap, records, mapping: state.mapping, settings }), state.merged)
 
     const ids = [...new Set([...matches.values()].map((m) => m.libId))]
     state.progress = `Loading ${ids.length} matched library notes…`
@@ -272,10 +380,9 @@ async function runAnalysis() {
 
     state.matches = markRaw(matches)
     state.libNotes = markRaw(libNotes)
-    classify(load(reviewKey(state.pkgPath), {}))
-    state.excluded = new Set()
-    state.applied = false
-    state.attempted = false
+    // Saved decisions (from the session file, or this session's) are kept where still valid.
+    classify(state.resolutions)
+    state.analyzedAt = new Date().toISOString()
     state.previewed = false
   })
 }
@@ -320,8 +427,11 @@ function classify(previous) {
     fieldMaps: state.fieldMaps,
     libModelFields: Object.fromEntries(Object.keys(state.libModelFields).map((m) => [m, libFieldsOf(m)])),
   })
+  // Merged notes are read-only: no resolution, whatever the re-analysis says about them.
   state.resolutions = Object.fromEntries(
-    entries.filter((e) => e.kind === 'conflict').map((e) => [e.guid, savedResolution(previous[e.guid], e)]),
+    entries
+      .filter((e) => e.kind === 'conflict' && !state.merged[e.guid])
+      .map((e) => [e.guid, savedResolution(previous[e.guid], e)]),
   )
   state.entries = entries
 }
@@ -408,9 +518,14 @@ function savedResolution(saved, entry) {
   return initialResolution(entry)
 }
 
+/** Counts of what is still open; merged notes are counted once, under `merged`. */
 const counts = computed(() => {
-  const c = { new: 0, identical: 0, auto: 0, conflict: 0, ambiguous: 0, shared: 0, dropped: 0 }
+  const c = { new: 0, identical: 0, auto: 0, conflict: 0, merged: 0, ambiguous: 0, shared: 0, dropped: 0 }
   for (const e of state.entries) {
+    if (state.merged[e.guid]) {
+      c.merged++
+      continue
+    }
     c[e.kind]++
     if (e.ambiguous) c.ambiguous++
     if (e.sharedWith?.length) c.shared++
@@ -419,13 +534,16 @@ const counts = computed(() => {
   return c
 })
 
+/** Guids the plan must leave alone: unticked by the user, or already merged. */
+const skipped = computed(() => new Set([...state.excluded, ...Object.keys(state.merged)]))
+
 const plan = computed(() =>
   state.entries.length
     ? buildPlan({
         pkg: state.pkg,
         entries: state.entries,
         resolutions: state.resolutions,
-        excluded: state.excluded,
+        excluded: skipped.value,
         deckMode: state.deckMode,
         targetDeck: state.targetDeck,
         mergeTag: state.mergeTag,
@@ -444,7 +562,8 @@ const dryRun = computed(() =>
         entries: state.entries,
         plan: plan.value,
         resolutions: state.resolutions,
-        excluded: state.excluded,
+        excluded: skipped.value,
+        merged: state.merged,
         libDecks: state.libDecks,
         mapping: state.mapping,
         fieldMaps: fieldPairs.value.map((p) => ({
@@ -476,12 +595,17 @@ async function saveDryRun() {
   return path
 }
 
+/**
+ * Write the current plan: every approved note not yet merged. Can be run
+ * again as more notes are approved; whatever landed goes into the ledger (even
+ * if a later step failed), so the next run only writes the rest.
+ */
 async function applyMerge() {
   state.applyLog = []
   state.report = createReport()
-  state.attempted = true
+  const current = plan.value
   await run(async () => {
-    await executePlan(client, plan.value, {
+    await executePlan(client, current, {
       report: state.report,
       readMedia: (names) => invoke('read_media', { path: state.pkgPath, names }),
       onProgress: (msg) => {
@@ -489,14 +613,36 @@ async function applyMerge() {
         state.applyLog.push(msg)
       },
     })
-    state.applied = true
-    localStorage.removeItem(reviewKey(state.pkgPath))
   })
+  // The report is filled in place, so partial results are recorded even after a throw.
+  const { merged, run: summary } = mergedFromRun({
+    plan: current,
+    report: state.report,
+    entries: state.entries,
+    run: state.runs.length + 1,
+  })
+  summary.error = state.error
+  state.merged = { ...state.merged, ...merged }
+  state.runs = [...state.runs, summary]
+  for (const guid of Object.keys(merged)) delete state.resolutions[guid]
+  // A created note type now exists: later runs (and packages) map onto it instead of creating it again.
+  for (const modelName of state.report.modelsCreated) {
+    if (!state.libModels.includes(modelName)) state.libModels = [...state.libModels, modelName].sort()
+    for (const nt of state.pkg.notetypes) {
+      const m = state.mapping[nt.id]
+      if (m?.create && m.modelName === modelName) {
+        state.mapping[nt.id] = { modelName, create: false }
+        savedTargets[nt.name] = { modelName, create: false }
+      }
+    }
+  }
+  if (state.report.modelsCreated.length) save('noteTypeTargets', savedTargets)
   // Fields that now exist in Anki stop being "scheduled", even if a later step failed.
   for (const { modelName, fieldName } of state.report.fieldsCreated) {
     state.libModelFields[modelName] = [...(state.libModelFields[modelName] ?? []), fieldName]
     state.newFields[modelName] = (state.newFields[modelName] ?? []).filter((f) => f !== fieldName)
   }
+  await saveSession()
 }
 
 // Cached data: URLs for previews, keyed by source + filename.
@@ -542,6 +688,8 @@ export function useMergeSession() {
     resetFieldMap,
     checkConnection,
     openPackage,
+    resumeSession,
+    peekSessions,
     forgetRecent,
     setNoteTypeTarget,
     loadModelFields,

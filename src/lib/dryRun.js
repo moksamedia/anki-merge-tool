@@ -30,7 +30,8 @@ function changeReason(entries, field, to) {
  * @param entries        output of analyze()
  * @param plan           output of buildPlan()
  * @param resolutions    {guid: {status, values}}
- * @param excluded       Set of excluded guids
+ * @param excluded       Set of excluded guids (including already-merged ones)
+ * @param merged         {guid: ledger entry} notes written by an earlier run
  * @param libDecks       existing library deck names
  * @param mapping        {pkgNotetypeId: {modelName, create}}
  * @param fieldMaps      [{package, library, fieldMap}] for note type pairs whose fields don't line up by name
@@ -44,6 +45,7 @@ export function buildDryRun({
   plan,
   resolutions,
   excluded,
+  merged = {},
   libDecks,
   mapping,
   fieldMaps = [],
@@ -99,7 +101,9 @@ export function buildDryRun({
       continue
     }
     const status = resolutions[e.guid]?.status
-    const reason = excluded.has(e.guid)
+    const reason = merged[e.guid]
+      ? 'merged'
+      : excluded.has(e.guid)
       ? 'excluded'
       : e.kind === 'conflict' && status === 'skipped'
         ? 'skipped'
@@ -198,7 +202,8 @@ export function buildDryRun({
     summary: {
       analysis: kinds,
       conflicts: conflictStatus,
-      excluded: excluded.size,
+      excluded: [...excluded].filter((g) => !merged[g]).length,
+      alreadyMerged: Object.keys(merged).length,
       notesAdded: newNotes.length,
       notesUpdated: plan.updates.length,
       notesTagged: plan.tagAdds.length,

@@ -164,15 +164,20 @@ function chunks(items, size) {
   return out
 }
 
+/**
+ * What a run wrote. `notes` lists each successful write with the library note
+ * id (for an added note, the id Anki assigned), so the session can record
+ * which package notes are merged and find added notes again later.
+ */
 export function createReport() {
   return {
     backup: null,
     modelsCreated: [],
     fieldsCreated: [],
     media: { stored: 0, renamed: {}, failed: [] },
-    added: { ok: 0, failed: [] },
-    updated: { ok: 0, failed: [] },
-    tagged: { ok: 0, failed: [] },
+    added: { ok: 0, failed: [], notes: [] },
+    updated: { ok: 0, failed: [], notes: [] },
+    tagged: { ok: 0, failed: [], notes: [] },
   }
 }
 
@@ -253,8 +258,9 @@ export async function executePlan(client, plan, { readMedia, onProgress = () => 
       })),
     )
     results.forEach((r, i) => {
-      if (r.error) report.added.failed.push({ guid: batch[i].guid, error: r.error })
-      else report.added.ok++
+      if (r.error) return report.added.failed.push({ guid: batch[i].guid, error: r.error })
+      report.added.ok++
+      report.added.notes.push({ guid: batch[i].guid, id: r.result, fields: applyRenames(batch[i].fields, renames) })
     })
   }
 
@@ -267,8 +273,9 @@ export async function executePlan(client, plan, { readMedia, onProgress = () => 
       })),
     )
     results.forEach((r, i) => {
-      if (r.error) report.updated.failed.push({ guid: batch[i].guids.join(', '), error: r.error })
-      else report.updated.ok++
+      if (r.error) return report.updated.failed.push({ guid: batch[i].guids.join(', '), error: r.error })
+      report.updated.ok++
+      report.updated.notes.push({ guids: batch[i].guids, id: batch[i].id, fields: applyRenames(batch[i].fields, renames) })
     })
   }
 
@@ -278,8 +285,9 @@ export async function executePlan(client, plan, { readMedia, onProgress = () => 
       batch.map(({ id, tags }) => ({ action: 'addTags', params: { notes: [id], tags: tags.join(' ') } })),
     )
     results.forEach((r, i) => {
-      if (r.error) report.tagged.failed.push({ guid: batch[i].guids.join(', '), error: r.error })
-      else report.tagged.ok++
+      if (r.error) return report.tagged.failed.push({ guid: batch[i].guids.join(', '), error: r.error })
+      report.tagged.ok++
+      report.tagged.notes.push({ guids: batch[i].guids, id: batch[i].id, tags: batch[i].tags })
     })
   }
 

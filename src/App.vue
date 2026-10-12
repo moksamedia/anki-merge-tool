@@ -46,7 +46,7 @@ const steps = computed(() => [
     <button v-if="step === 'connect'" class="primary next" :disabled="!connected" @click="step = 'package'">
       Next →
     </button>
-    <PackageStep v-else-if="step === 'package'" @done="step = 'configure'" />
+    <PackageStep v-else-if="step === 'package'" @done="step = 'configure'" @resume="step = 'review'" />
     <ConfigureStep v-else-if="step === 'configure'" @done="step = 'review'" />
     <ReviewStep v-else-if="step === 'review'" @done="step = 'preview'" />
     <PreviewStep v-else-if="step === 'preview'" @done="step = 'apply'" @back="step = 'review'" />

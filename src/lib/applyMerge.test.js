@@ -297,6 +297,10 @@ describe('executePlan', () => {
     expect(added.fields.Front).toBe('<img src="a-1.jpg">')
     expect(report).toMatchObject({ added: { ok: 1 }, updated: { ok: 2 }, tagged: { ok: 1 } })
     expect(report.media.renamed).toEqual({ 'a.jpg': 'a-1.jpg' })
+    // Successful writes are listed with their library note ids, for the session ledger.
+    expect(report.added.notes).toEqual([{ guid: 'n1', id: 1, fields: { Front: '<img src="a-1.jpg">', Back: 'b' } }])
+    expect(report.updated.notes.map((u) => [u.guids, u.id])).toEqual([[['a1'], 100], [['c1'], 200]])
+    expect(report.tagged.notes.map((t) => [t.guids, t.id, t.tags])).toEqual([[['a1'], 100, ['extra']]])
   })
 
   it('adds scheduled library fields after the backup and before any note is written', async () => {

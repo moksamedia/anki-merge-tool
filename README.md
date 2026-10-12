@@ -35,7 +35,8 @@ No CORS setup is needed, because all HTTP calls go through the Rust side.
    - **Auto:** only fills empty library fields and/or adds tags.
    - **Conflict:** opens the side-by-side merge, with Library | Package | Result per field, word diffs and a rendered preview. Tick the checkbox in the top-right corner of the Library or Package cell (or double-click the cell) to take that side, or tick both to combine them. You can also edit the result by hand, either as raw HTML (**Code**) or in an editor that works like Anki's own field editor (**Editor**): the field's font and size from the library note type, images inline, `[sound:…]` as text, Enter inserting `<br>`, and pasting as plain text. The Code/Editor switch in the header sets every Result cell and is remembered; the switch in a cell (or Ctrl/Cmd+Shift+X in it) changes just that cell. `E` toggles all cells. A hand-edited result is marked, and ticking a box afterwards asks before replacing your edit. Keys: `A` accept, `S` skip, `J`/`K` move between notes, `R` toggle rendered.
    - **Field mapping** (optional, collapsed): fields pair by name (case-insensitively) unless you say otherwise. When a package note type meets a library note type that doesn't line up with it — matched notes in a differently named type, or a target type with fields the other side lacks — Review shows a collapsed **Field mapping** panel listing each pair. It includes library types reached only through library-wide matching, which Configure can't know about before analysis. Open it to pick which package field fills each library field, or nothing. One package field can fill several library fields. A package field that no library field takes can be added to the library note type with **+ add field**. The field is only scheduled at that point. Apply creates it after the backup, through AnkiConnect's `modelFieldAdd`, and only if a note fills it. Card templates don't show it until you edit them, and the change makes Anki's next AnkiWeb sync a one-way full sync. Choices are remembered by note type names for later packages. A change re-classifies at once, with no trip to Anki, and resets any review decision whose package side changed.
-   - Review decisions are saved per package file, so a long review can be resumed.
+   - **Sessions:** once analysis has run, everything is saved next to the package as `<name>.apkg.merge.json` on every change: the Configure choices, decisions, unticked notes, and the ledger of notes already merged. **Recent** on the Package step shows each package's progress with a **Resume** button that reopens it, re-analyzes against the live library, and lands on Review. Saved decisions are kept where the library note is unchanged; the rest reset.
+   - **Merged** tab: notes an earlier run wrote. They are read-only and are never merged again, whatever a later analysis says about them; each shows what was written, and flags a note that has since changed in Anki or is no longer in the library.
 5. **Preview (dry run):** a full report of what the merge would write, built from the same plan Apply executes, so the two can't disagree. It covers:
    - the ordered steps and summary counts;
    - decks (and which will be created), note types (created, mapped, fields added), media and the merge tag;
@@ -43,7 +44,7 @@ No CORS setup is needed, because all HTTP calls go through the Rust side.
    - every new note with its deck, tags and fields;
    - notes left alone and why, and warnings.
    Filter by text; **Copy JSON** or **Save JSON…** to keep a record of the run.
-6. **Apply:**
+6. **Apply:** writes the approved notes — accepted conflicts, plus ticked auto-merges and new notes — that aren't merged yet. Approve some, merge, approve more, merge again: each run only writes the rest, and a half-finished run leaves what landed in the ledger and what failed still approved. One merge tag covers every run on the package.
    - Runs the backup first and stops if it fails.
    - Then creates the deck and note types, copies the media referenced by written notes, adds notes, updates fields and adds tags.
    - Media: a library file with the same name but different content is never overwritten. Anki stores ours under a new name and the note fields are rewritten to match.
@@ -51,7 +52,7 @@ No CORS setup is needed, because all HTTP calls go through the Rust side.
 
 ## Limitations
 
-- New notes get fresh GUIDs, because AnkiConnect's `addNote` can't set them. Re-merging the same package later therefore matches those notes by main field, not GUID.
+- New notes get fresh GUIDs, because AnkiConnect's `addNote` can't set them. The session file records the id Anki assigned, so later runs find them again; without it (a deleted session file, or another machine), re-merging matches those notes by main field, not GUID.
 - Scheduling and review history aren't copied. Only content (fields, tags, media) is merged.
 - AnkiConnect can't update a note that's open in Anki's Browse window, so close it before applying.
 
@@ -69,7 +70,7 @@ Layout:
 
 - `src-tauri/src/apkg.rs`: the package parser.
 - `src-tauri/src/anki.rs`: the AnkiConnect and bridge proxy.
-- `src/lib/`: pure logic (`match.js`, `applyMerge.js`) and the client (`ankiClient.js`).
+- `src/lib/`: pure logic (`match.js`, `applyMerge.js`, `session.js` for the session file and merged ledger) and the client (`ankiClient.js`).
 - `src/composables/useMergeSession.js`: session state.
 - `src/components/`: the step views and `ConflictMerge.vue`.
 

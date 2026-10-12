@@ -2,9 +2,10 @@
 import { computed } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { entryLabel } from '../lib/display.js'
+import { runFailures } from '../lib/session.js'
 
 const emit = defineEmits(['preview'])
-const { state, settings, plan, applyMerge } = useMergeSession()
+const { state, settings, counts, plan, applyMerge } = useMergeSession()
 
 const decksToCreate = computed(() => plan.value.decks.filter((d) => !state.libDecks.includes(d)))
 
@@ -18,19 +19,19 @@ const libLabelOf = (id) => {
 const pending = computed(
   () => Object.values(state.resolutions).filter((r) => r.status === 'pending').length,
 )
-const nothingToDo = computed(
-  () => !plan.value.newNotes.length && !plan.value.updates.length && !plan.value.tagAdds.length,
+// Package notes this run writes: added, updated or tagged.
+const toWrite = computed(
+  () =>
+    new Set([
+      ...plan.value.newNotes.map((n) => n.guid),
+      ...plan.value.updates.flatMap((u) => u.guids),
+      ...plan.value.tagAdds.flatMap((t) => t.guids),
+    ]).size,
 )
-const failures = computed(() => {
-  const r = state.report
-  if (!r) return []
-  return [
-    ...r.media.failed.map((f) => ({ what: `media ${f.name}`, error: f.error })),
-    ...r.added.failed.map((f) => ({ what: `add ${f.guid}`, error: f.error })),
-    ...r.updated.failed.map((f) => ({ what: `update ${f.guid}`, error: f.error })),
-    ...r.tagged.failed.map((f) => ({ what: `tags ${f.guid}`, error: f.error })),
-  ]
-})
+const nothingToDo = computed(() => toWrite.value === 0)
+const lastRun = computed(() => state.runs[state.runs.length - 1] ?? null)
+const failures = computed(() => runFailures(state.report))
+const when = (iso) => new Date(iso).toLocaleString()
 </script>
 
 <template>
@@ -57,8 +58,11 @@ const failures = computed(() => {
         <li>Add tags to <b>{{ plan.tagAdds.length }}</b> notes</li>
         <li v-if="plan.mergeTag">Tag every written note with <code>{{ plan.mergeTag }}</code></li>
         <li>Copy <b>{{ plan.media.length }}</b> media files (existing differing files are kept; ours are renamed)</li>
+        <li v-if="counts.merged">Leave alone <b>{{ counts.merged }}</b> notes already merged in earlier runs</li>
       </ul>
-      <p v-if="pending" class="warn-text">{{ pending }} conflict(s) are still undecided and will be skipped.</p>
+      <p v-if="pending" class="warn-text">
+        {{ pending }} conflict(s) are still undecided and will be skipped. Decide them later and merge again.
+      </p>
       <div v-if="plan.collisions.length" class="error">
         <b>{{ plan.collisions.length }} field(s) where package notes disagree about the same library note.</b>
         Go back to Review and skip (or untick) one of them, or make their results identical.
@@ -71,29 +75,27 @@ const failures = computed(() => {
           </li>
         </ul>
       </div>
-      <p v-if="!state.previewed && !state.attempted" class="warn-text small">
+      <p v-if="!state.previewed && !nothingToDo" class="warn-text small">
         You haven't opened the Preview for this analysis.
         <button class="link" @click="emit('preview')">See every change first →</button>
       </p>
-      <p v-else-if="!state.attempted" class="muted small">
+      <p v-else-if="!nothingToDo" class="muted small">
         <button class="link" @click="emit('preview')">Review the full preview</button>
       </p>
       <p class="muted small">Close Anki's Browse window first — AnkiConnect can't update a note that's open in it.</p>
-      <button
-        class="primary"
-        :disabled="state.busy || nothingToDo || state.attempted || plan.collisions.length > 0"
-        @click="applyMerge"
-      >
-        {{ state.busy ? state.progress : state.applied ? 'Applied' : state.attempted ? 'Stopped' : 'Back up & merge' }}
+      <button class="primary" :disabled="state.busy || nothingToDo || plan.collisions.length > 0" @click="applyMerge">
+        <template v-if="state.busy">{{ state.progress }}</template>
+        <template v-else-if="nothingToDo">Nothing approved to merge</template>
+        <template v-else>Back up &amp; merge {{ toWrite }} note{{ toWrite === 1 ? '' : 's' }}</template>
       </button>
-      <p v-if="state.attempted && !state.busy && !state.applied" class="warn-text small">
-        This merge stopped part-way. Some notes may already be written, so re-run <b>Analyze</b> in Configure before
-        merging again — it will see what landed and only propose the rest.
+      <p v-if="nothingToDo && !state.busy" class="muted small">
+        Approve more notes in Review — accept conflicts, or tick auto-merges and new notes — and come back.
       </p>
     </div>
 
-    <div v-if="state.report" class="card">
-      <h3>{{ state.applied ? 'Merge complete' : 'Merge stopped' }}</h3>
+    <div v-if="state.report && lastRun" class="card">
+      <h3>{{ lastRun.error ? 'Merge stopped' : 'Merge complete' }} <span class="muted">· run {{ lastRun.run }}</span></h3>
+      <p v-if="lastRun.error" class="error">{{ lastRun.error }}</p>
       <p v-if="state.report.backup">
         Backup: <code>{{ state.report.backup.file }}</code>
         <span v-if="!state.report.backup.created" class="muted small">(unchanged since this backup was made)</span>
@@ -112,9 +114,11 @@ const failures = computed(() => {
             ({{ Object.keys(state.report.media.renamed).length }} renamed to avoid overwriting library files)
           </span>
         </li>
+        <li><b>{{ lastRun.merged }}</b> package notes recorded as merged; they are listed under Merged in Review.</li>
       </ul>
       <details v-if="failures.length" open>
         <summary class="warn-text">{{ failures.length }} failure(s)</summary>
+        <p class="small">These notes stay approved. Fix the cause (an open Browse window, for instance) and merge again.</p>
         <ul class="small">
           <li v-for="(f, i) in failures" :key="i"><code>{{ f.what }}</code>: {{ f.error }}</li>
         </ul>
@@ -124,5 +128,29 @@ const failures = computed(() => {
         <ol class="small"><li v-for="(l, i) in state.applyLog" :key="i">{{ l }}</li></ol>
       </details>
     </div>
+
+    <details v-if="state.runs.length" class="card runs">
+      <summary>{{ state.runs.length }} earlier run{{ state.runs.length === 1 ? '' : 's' }} on this package</summary>
+      <table class="plain small">
+        <thead><tr><th>Run</th><th>When</th><th>Added</th><th>Updated</th><th>Tagged</th><th>Merged</th><th>Failures</th><th>Backup</th></tr></thead>
+        <tbody>
+          <tr v-for="r in state.runs" :key="r.run">
+            <td>{{ r.run }}</td>
+            <td>{{ when(r.at) }}</td>
+            <td>{{ r.added }}</td>
+            <td>{{ r.updated }}</td>
+            <td>{{ r.tagged }}</td>
+            <td>{{ r.merged }}</td>
+            <td :class="{ 'warn-text': r.failures.length || r.error }">{{ r.failures.length }}{{ r.error ? ' · stopped' : '' }}</td>
+            <td><code v-if="r.backup">{{ r.backup }}</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </details>
   </section>
 </template>
+
+<style scoped>
+.runs summary { cursor: pointer; }
+.runs table { margin-top: 8px; }
+</style>
