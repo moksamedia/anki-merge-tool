@@ -1,8 +1,10 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { confirm } from '@tauri-apps/plugin-dialog'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { initialResolution } from '../lib/match.js'
 import { entryLabel, STATUS_LABEL } from '../lib/display.js'
+import { isManualEdit, takenSides, valueForSides } from '../lib/resultSides.js'
 import DiffText from './DiffText.vue'
 import FieldPreview from './FieldPreview.vue'
 import MediaStrip from './MediaStrip.vue'
@@ -23,9 +25,25 @@ const shownFields = computed(() => props.entry.fields.filter((f) => showSame.val
 const sameCount = computed(() => props.entry.fields.filter((f) => f.status === 'same').length)
 
 const rows = (text) => Math.min(12, Math.max(2, Math.ceil((text?.length ?? 0) / 60)))
-const pick = (field, value) => (resolution.value.values[field.name] = value)
-const combine = (f) => (f.lib && f.pkg ? `${f.lib}<br>${f.pkg}` : f.lib || f.pkg)
-const chosen = (f, value) => resolution.value.values[f.name] === value
+const valueOf = (f) => resolution.value.values[f.name] ?? ''
+const taken = (f) => takenSides(f, valueOf(f))
+const SIDE_LABEL = { lib: 'library', pkg: 'package' }
+
+/** Take or drop one side; asks before replacing a result edited by hand. */
+async function take(f, side, event) {
+  const next = valueForSides(f, { ...taken(f), [side]: event.target.checked })
+  const ok =
+    !isManualEdit(f, valueOf(f)) ||
+    (await confirm(`You've edited the result for "${f.name}" by hand. Replace your edits?`, {
+      title: 'Overwrite manual edits?',
+      kind: 'warning',
+      okLabel: 'Replace',
+      cancelLabel: 'Keep my edits',
+    }))
+  if (ok) resolution.value.values[f.name] = next
+  // Re-sync the box with the value: unchanged on cancel, or a no-op toggle.
+  event.target.checked = taken(f)[side]
+}
 
 function decide(status) {
   resolution.value.status = status
@@ -90,14 +108,32 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             <small v-if="f.pkgName && f.pkgName !== f.name">← {{ f.pkgName }}</small>
             <small>{{ STATUS_LABEL[f.status] }}</small>
           </th>
-          <td>
+          <td class="side">
+            <input
+              v-if="f.lib && f.status !== 'same'"
+              type="checkbox"
+              class="take"
+              :checked="taken(f).lib"
+              :title="`Use the ${SIDE_LABEL.lib} value`"
+              :aria-label="`Use the library value for ${f.name}`"
+              @change="take(f, 'lib', $event)"
+            />
             <FieldPreview v-if="rendered" :html="f.lib" source="lib" />
             <template v-else>
               <DiffText :a="f.lib" :b="f.pkg" side="lib" />
               <MediaStrip :html="f.lib" source="lib" />
             </template>
           </td>
-          <td>
+          <td class="side">
+            <input
+              v-if="f.pkg && f.status !== 'same'"
+              type="checkbox"
+              class="take"
+              :checked="taken(f).pkg"
+              :title="`Use the ${SIDE_LABEL.pkg} value`"
+              :aria-label="`Use the package value for ${f.name}`"
+              @change="take(f, 'pkg', $event)"
+            />
             <FieldPreview v-if="rendered" :html="f.pkg" source="pkg" />
             <template v-else>
               <DiffText :a="f.lib" :b="f.pkg" side="pkg" />
@@ -105,11 +141,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             </template>
           </td>
           <td class="result">
-            <div class="pick">
-              <button :class="{ on: chosen(f, f.lib) }" @click="pick(f, f.lib)">Library</button>
-              <button :class="{ on: chosen(f, f.pkg) }" @click="pick(f, f.pkg)">Package</button>
-              <button :class="{ on: chosen(f, combine(f)) }" @click="pick(f, combine(f))">Both</button>
-            </div>
+            <small v-if="isManualEdit(f, valueOf(f))" class="edited">edited by hand</small>
             <textarea v-model="resolution.values[f.name]" :rows="rows(resolution.values[f.name])" spellcheck="false"></textarea>
             <FieldPreview v-if="rendered" :html="resolution.values[f.name]" source="result" />
             <MediaStrip v-else :html="resolution.values[f.name]" source="result" />

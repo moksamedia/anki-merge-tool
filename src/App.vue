@@ -209,9 +209,14 @@ table.fields tbody th { overflow-wrap: anywhere; }
 table.fields tbody th small { display: block; font-weight: normal; color: var(--muted); }
 table.fields tr.conflict th { background: var(--conflict-bg); }
 table.fields tr.fill th { background: var(--fill-bg); }
+.result .edited { display: block; margin-bottom: 4px; color: var(--manual); }
 .result textarea { width: 100%; font-family: 'Tibetan Large', ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.8; resize: vertical; }
-.pick { display: flex; gap: 4px; margin-bottom: 6px; }
-.pick button { padding: 3px 8px; font-size: 12px; }
+/* Library/Package cells: a small checkbox in the top right takes that side. */
+table.fields td.side { position: relative; padding-right: 30px; }
+table.fields td.side .take {
+  position: absolute; top: 8px; right: 8px; margin: 0;
+  width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer;
+}
 
 .raw { font-family: 'Tibetan Large', ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.8; white-space: pre-wrap; word-break: break-word; }
 .raw .ins { background: var(--ins-bg); border-radius: 2px; }
