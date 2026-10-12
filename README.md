@@ -9,9 +9,10 @@ Successor to `../anki-merge-vue` (an Electron scaffold that never worked end to 
 Anki must be open with two add-ons:
 
 - **AnkiConnect** (AnkiWeb code `2055492159`) on `127.0.0.1:8765`: reads and writes notes, media, decks and note types.
-- **anki-ai-bridge** (`../anki-ai-bridge`) on `127.0.0.1:8766`, a version that has `POST /backup` and `POST /notes/by-guid`:
+- **anki-ai-bridge** (`../anki-ai-bridge`) on `127.0.0.1:8766`, a version that has `POST /backup`, `POST /notes/by-guid` and `POST /notes/field-values`:
   - `/backup` creates the pre-merge `.colpkg` backup, which stock AnkiConnect can't do.
   - `/notes/by-guid` supports GUID matching; AnkiConnect's `notesInfo` doesn't return GUIDs.
+  - `/notes/field-values` reads the main field of every note in one pass for library-wide matching. AnkiConnect `findNotes` isn't used: on Anki 26.8+ AnkiConnect, a search over ~10k notes fills its search-cursor cache and blocks every search for 10 minutes.
 
 No CORS setup is needed, because all HTTP calls go through the Rust side.
 
@@ -24,7 +25,8 @@ No CORS setup is needed, because all HTTP calls go through the Rust side.
    - The target deck for new notes.
    - Which library note type each package note type maps to: an existing one (fields matched by name) or a newly created one.
 4. **Analyze and review:**
-   - Each package note is matched by GUID first, then by main field within the target note type. Tick **Ignore GUIDs** to match on the main field only.
+   - Each package note is matched by GUID first, then by main field across the **whole library**: any deck, any note type that has the main field (a candidate in the mapped note type is preferred). Tick **Ignore GUIDs** to match on the main field only.
+   - A package note type without the main field falls back to its first field, matched only within the library note type it maps to.
    - The main-field comparison ignores markup, case, `&nbsp;`, whitespace, trailing tsheg/shad (`བཀྲ་ཤིས་` = `བཀྲ་ཤིས` = `བཀྲ་ཤིས།`) and how a stack is encoded in Unicode (U+0F43 = U+0F42 U+0FB7). This only affects matching; stored text is never changed.
    - When several package notes match the same library note they are marked ⚠, and their changes are merged into a single update. If they want different values for the same field, applying is blocked until you skip one or make them agree.
    - **New:** the note is added to the target deck.

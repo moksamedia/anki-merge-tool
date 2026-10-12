@@ -38,27 +38,95 @@ export function namedFields(note, notetype) {
   return Object.fromEntries(notetype.fields.map((name, i) => [name, note.fields[i] ?? '']))
 }
 
+/** The configured main field as spelled in this field list (case-insensitive), or undefined. */
+export function findMainField(fieldNames, preferred) {
+  const lower = preferred?.trim().toLowerCase()
+  return fieldNames.find((f) => f.toLowerCase() === lower)
+}
+
 /** The field used for matching: the configured main field, else the notetype's first field. */
 export function mainFieldName(fieldNames, preferred) {
-  const lower = preferred?.trim().toLowerCase()
-  return fieldNames.find((f) => f.toLowerCase() === lower) ?? fieldNames[0]
+  return findMainField(fieldNames, preferred) ?? fieldNames[0]
+}
+
+function push(map, key, record) {
+  if (!map.has(key)) map.set(key, [])
+  map.get(key).push(record)
 }
 
 /**
- * Index library notes by (model, main-field key) for fallback matching.
- * Several notes can share a key; all are kept so ambiguity can be reported.
+ * Lightweight library record used for matching: {id, modelName, main, first}.
+ * `main` is null when the note's type lacks the main field. The bridge's
+ * /notes/field-values returns these for the whole library; this builds the same
+ * shape from full notes (used by tests).
  */
-export function indexLibraryNotes(libNotes, preferredMainField) {
-  const index = new Map()
-  for (const note of libNotes) {
-    const field = mainFieldName(note.fieldOrder, preferredMainField)
-    const key = matchKey(note.fields[field])
-    if (!key) continue
-    const k = `${note.modelName}\u0000${key}`
-    if (!index.has(k)) index.set(k, [])
-    index.get(k).push(note)
+export function toRecord(note, preferredMainField) {
+  const main = findMainField(note.fieldOrder, preferredMainField)
+  return {
+    id: note.id,
+    modelName: note.modelName,
+    main: main ? note.fields[main] : null,
+    first: note.fields[note.fieldOrder[0]],
   }
-  return index
+}
+
+/**
+ * Index library records for main-field matching. Several notes can share a
+ * key; all are kept so ambiguity can be reported.
+ *
+ * - `byMainField`: key -> records, across every note type and deck that has the
+ *   main field. This is the library-wide index.
+ * - `byFirstField`: (model, first-field key) -> records, used when the package
+ *   note type has no main field. A first field means different things in
+ *   different note types, so this fallback stays within the mapped note type.
+ */
+export function indexLibrary(records) {
+  const byMainField = new Map()
+  const byFirstField = new Map()
+  for (const r of records) {
+    const mainKey = r.main == null ? '' : matchKey(r.main)
+    if (mainKey) push(byMainField, mainKey, r)
+    const firstKey = matchKey(r.first)
+    if (firstKey) push(byFirstField, `${r.modelName}\u0000${firstKey}`, r)
+  }
+  return { byMainField, byFirstField }
+}
+
+/** Main-field candidates for a package note, preferring the mapped note type. */
+function fieldCandidates(index, notetype, fields, target, preferredMainField) {
+  const main = findMainField(notetype.fields, preferredMainField)
+  if (!main) {
+    const key = matchKey(fields[notetype.fields[0]])
+    return key ? index.byFirstField.get(`${target.modelName}\u0000${key}`) ?? [] : []
+  }
+  const key = matchKey(fields[main])
+  const hits = key ? index.byMainField.get(key) ?? [] : []
+  return [...hits].sort((a, b) => (b.modelName === target.modelName) - (a.modelName === target.modelName))
+}
+
+/**
+ * Phase 1: pick a library note id for each package note, from GUIDs and the
+ * lightweight library records — before any full note is loaded.
+ *
+ * @param guidMap  {guid: libraryNoteId} from the bridge ({} when GUIDs are ignored)
+ * @param records  library records, see toRecord()
+ * @returns Map guid -> {libId, matchedBy: 'guid'|'field', candidates}; unmatched notes are absent
+ */
+export function selectMatches({ pkg, guidMap, records, mapping, settings }) {
+  const notetypes = new Map(pkg.notetypes.map((nt) => [nt.id, nt]))
+  const index = indexLibrary(records)
+  const matches = new Map()
+  for (const note of pkg.notes) {
+    const guidHit = settings.ignoreGuid ? undefined : guidMap[note.guid]
+    if (guidHit !== undefined) {
+      matches.set(note.guid, { libId: guidHit, matchedBy: 'guid', candidates: 1 })
+      continue
+    }
+    const notetype = notetypes.get(note.notetypeId)
+    const hits = fieldCandidates(index, notetype, namedFields(note, notetype), mapping[note.notetypeId], settings.mainField)
+    if (hits.length) matches.set(note.guid, { libId: hits[0].id, matchedBy: 'field', candidates: hits.length })
+  }
+  return matches
 }
 
 /**
@@ -89,20 +157,19 @@ export function newTags(pkgTags, libTags) {
 }
 
 /**
- * Classify every package note.
+ * Phase 2: classify every package note against its matched library note.
  *
  * @param pkg       parsed package from the Rust parser
- * @param guidMap   {guid: libraryNoteId} from the bridge
- * @param libNotes  normalized library notes (GUID matches + notes of mapped models)
+ * @param matches   output of selectMatches()
+ * @param libNotes  full normalized library notes for the matched ids
  * @param mapping   {pkgNotetypeId: {modelName, create}} target library model per package notetype
- * @param settings  {mainField, autoFillEmpty, ignoreGuid}
+ * @param settings  {autoFillEmpty}
  * @returns array of {kind: new|identical|auto|conflict, ...}. Matched entries carry
  *          `sharedWith`: guids of other package notes matched to the same library note.
  */
-export function analyze({ pkg, guidMap, libNotes, mapping, settings }) {
+export function analyze({ pkg, matches, libNotes, mapping, settings }) {
   const notetypes = new Map(pkg.notetypes.map((nt) => [nt.id, nt]))
   const libById = new Map(libNotes.map((n) => [n.id, n]))
-  const index = indexLibraryNotes(libNotes, settings.mainField)
 
   const entries = pkg.notes.map((note) => {
     const notetype = notetypes.get(note.notetypeId)
@@ -110,19 +177,11 @@ export function analyze({ pkg, guidMap, libNotes, mapping, settings }) {
     const fields = namedFields(note, notetype)
     const base = { guid: note.guid, pkgNote: note, notetype, target, pkgFields: fields }
 
-    let libNote = settings.ignoreGuid ? undefined : libById.get(guidMap[note.guid])
-    let matchedBy = libNote ? 'guid' : null
-    let candidates = 0
-    // A notetype being created can't have library notes yet, so only GUIDs can match it.
-    if (!libNote && !target.create) {
-      const key = matchKey(fields[mainFieldName(notetype.fields, settings.mainField)])
-      const hits = key ? index.get(`${target.modelName}\u0000${key}`) ?? [] : []
-      candidates = hits.length
-      libNote = hits[0]
-      matchedBy = libNote ? 'field' : null
-    }
-
+    const match = matches.get(note.guid)
+    // A note deleted between phases simply comes back unmatched.
+    const libNote = match && libById.get(match.libId)
     if (!libNote) return { ...base, kind: 'new' }
+    const { matchedBy, candidates } = match
 
     const { fields: comparison, dropped } = compareFields(fields, libNote, settings)
     const tagsToAdd = newTags(note.tags, libNote.tags)

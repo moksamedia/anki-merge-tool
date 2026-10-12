@@ -14,12 +14,6 @@ export function normalizeNoteInfo(info) {
   }
 }
 
-/** Quote a value for Anki search, escaping wildcards so `note:` matches literally. */
-export function searchTerm(prefix, value) {
-  const escaped = value.replace(/[\\"*_]/g, (c) => `\\${c}`)
-  return `"${prefix}:${escaped}"`
-}
-
 /**
  * Client over the Rust proxy commands. `settings` is read on every call so URL
  * edits in the UI take effect without recreating the client.
@@ -48,7 +42,6 @@ export function createAnkiClient(settings) {
     deckNames: () => call('deckNames'),
     modelNames: () => call('modelNames'),
     modelFieldNames: (modelName) => call('modelFieldNames', { modelName }),
-    findNotes: (query) => call('findNotes', { query }),
 
     async notesInfo(ids) {
       const out = []
@@ -66,5 +59,10 @@ export function createAnkiClient(settings) {
     // Allow the bridge its full backup window plus some slack.
     backup: () => bridge('POST', '/backup', null, 240),
     notesByGuid: (guids) => bridge('POST', '/notes/by-guid', { guids }, 60),
+    /** Every library note as {id, modelName, main, first}; main is null if its type lacks `field`. */
+    async fieldValues(field) {
+      const rows = await bridge('POST', '/notes/field-values', { field }, 120)
+      return rows.map(([id, modelName, main, first]) => ({ id, modelName, main, first }))
+    },
   }
 }

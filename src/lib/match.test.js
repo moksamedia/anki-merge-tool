@@ -1,26 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { analyze, compareFields, initialResolution, matchKey, mediaReferences } from './match.js'
+import { analyze, compareFields, initialResolution, matchKey, mediaReferences, selectMatches, toRecord } from './match.js'
 
 const notetype = { id: 1, name: 'Tibetan Vocab', fields: ['Tibetan', 'English', 'Notes'], templates: [] }
 
 const pkgNote = (guid, fields, tags = []) => ({ id: guid.length, guid, notetypeId: 1, fields, tags })
 
-const libNote = (id, fields, tags = []) => ({
+const libNote = (id, fields, tags = [], modelName = 'Tibetan Vocab', fieldOrder = ['Tibetan', 'English', 'Notes']) => ({
   id,
-  modelName: 'Tibetan Vocab',
-  fieldOrder: ['Tibetan', 'English', 'Notes'],
-  fields: { Tibetan: fields[0], English: fields[1], Notes: fields[2] },
+  modelName,
+  fieldOrder,
+  fields: Object.fromEntries(fieldOrder.map((name, i) => [name, fields[i] ?? ''])),
   tags,
 })
 
-const run = (notes, libNotes, guidMap = {}, mapping = { 1: { modelName: 'Tibetan Vocab', create: false } }) =>
-  analyze({
-    pkg: { notetypes: [notetype], notes, media: [] },
-    guidMap,
-    libNotes,
-    mapping,
-    settings: { mainField: 'tibetan', autoFillEmpty: true },
-  })
+const DEFAULT_MAPPING = { 1: { modelName: 'Tibetan Vocab', create: false } }
+
+// Mirrors runAnalysis: phase 1 on lightweight records, phase 2 on full notes.
+function run(notes, libNotes, guidMap = {}, mapping = DEFAULT_MAPPING, extra = {}, notetypes = [notetype]) {
+  const settings = { mainField: 'tibetan', autoFillEmpty: true, ...extra }
+  const pkg = { notetypes, notes, media: [] }
+  const records = libNotes.map((n) => toRecord(n, settings.mainField))
+  const matches = selectMatches({ pkg, guidMap, records, mapping, settings })
+  return analyze({ pkg, matches, libNotes, mapping, settings })
+}
 
 describe('matchKey', () => {
   it('ignores markup, case, nbsp and whitespace', () => {
@@ -108,13 +110,7 @@ describe('analyze', () => {
   it('can ignore GUIDs and match on the main field only', () => {
     const notes = [pkgNote('g1', ['ཀ', 'ka', ''])]
     const libs = [libNote(10, ['ཁ', 'kha', '']), libNote(11, ['ཀ', 'ka', ''])]
-    const [r] = analyze({
-      pkg: { notetypes: [notetype], notes, media: [] },
-      guidMap: { g1: 10 },
-      libNotes: libs,
-      mapping: { 1: { modelName: 'Tibetan Vocab', create: false } },
-      settings: { mainField: 'Tibetan', autoFillEmpty: true, ignoreGuid: true },
-    })
+    const [r] = run(notes, libs, { g1: 10 }, DEFAULT_MAPPING, { ignoreGuid: true })
     expect(r.matchedBy).toBe('field')
     expect(r.libNote.id).toBe(11)
   })
@@ -127,10 +123,42 @@ describe('analyze', () => {
     expect(results.map((r) => r.sharedWith)).toEqual([['b'], ['a'], []])
   })
 
-  it('only matches by GUID when the notetype is being created', () => {
+  it('matches across note types (library-wide)', () => {
+    const other = libNote(7, ['ཀ', 'ka (other)'], [], 'Tibetan Sentences', ['Tibetan', 'Gloss'])
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [other])
+    expect(r.matchedBy).toBe('field')
+    expect(r.libNote.modelName).toBe('Tibetan Sentences')
+    expect(r.dropped).toEqual(['English']) // package fields the other type lacks
+  })
+
+  it('matches library notes even when the package note type is being created', () => {
     const mapping = { 1: { modelName: 'Tibetan Vocab', create: true } }
     const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [libNote(1, ['ཀ', 'ka', ''])], {}, mapping)
+    expect(r.matchedBy).toBe('field')
+  })
+
+  it('prefers a candidate in the mapped note type', () => {
+    const other = libNote(7, ['ཀ', ''], [], 'Other', ['Tibetan', 'Gloss'])
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [other, libNote(8, ['ཀ', 'ka', ''])])
+    expect(r.libNote.id).toBe(8)
+    expect(r.ambiguous).toBe(true)
+  })
+
+  it('ignores library note types without the main field', () => {
+    const basic = libNote(9, ['ཀ', 'ka'], [], 'Basic', ['Front', 'Back'])
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [basic])
     expect(r.kind).toBe('new')
+  })
+
+  it('falls back to the first field, within the mapped note type only, when the package type lacks the main field', () => {
+    const pkgBasic = { id: 2, name: 'Basic', fields: ['Front', 'Back'], templates: [] }
+    const note = { id: 1, guid: 'b', notetypeId: 2, fields: ['ཀ', 'ka'], tags: [] }
+    const mapping = { 2: { modelName: 'Basic', create: false } }
+    const basic = libNote(9, ['ཀ', 'ka'], [], 'Basic', ['Front', 'Back'])
+    const otherFirst = libNote(10, ['ཀ', 'x'], [], 'Reverse', ['Front', 'Back'])
+    const [r] = run([note], [otherFirst, basic], {}, mapping, {}, [pkgBasic])
+    expect(r.libNote.id).toBe(9)
+    expect(r.ambiguous).toBe(false)
   })
 })
 

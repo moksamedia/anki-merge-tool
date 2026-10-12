@@ -1,8 +1,8 @@
 import { computed, reactive, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import { createAnkiClient, searchTerm } from '../lib/ankiClient.js'
-import { analyze, initialResolution } from '../lib/match.js'
+import { createAnkiClient } from '../lib/ankiClient.js'
+import { analyze, initialResolution, selectMatches } from '../lib/match.js'
 import { buildPlan, createReport, executePlan } from '../lib/applyMerge.js'
 
 const DEFAULT_SETTINGS = {
@@ -146,17 +146,17 @@ async function runAnalysis() {
       guidMap = await client.notesByGuid(pkg.notes.map((n) => n.guid))
     }
 
-    const models = [...new Set(Object.values(state.mapping).filter((m) => !m.create).map((m) => m.modelName))]
-    const ids = new Set(Object.values(guidMap))
-    for (const model of models) {
-      state.progress = `Finding library notes of type "${model}"…`
-      for (const id of await client.findNotes(searchTerm('note', model))) ids.add(id)
-    }
+    // Library-wide main-field values in one bridge call. AnkiConnect findNotes
+    // is avoided: on large libraries it exhausts its search-cursor cache.
+    state.progress = 'Reading library field values…'
+    const records = await client.fieldValues(settings.mainField || '')
+    const matches = selectMatches({ pkg, guidMap, records, mapping: state.mapping, settings })
 
-    state.progress = `Loading ${ids.size} library notes…`
-    const libNotes = await client.notesInfo([...ids])
+    const ids = [...new Set([...matches.values()].map((m) => m.libId))]
+    state.progress = `Loading ${ids.length} matched library notes…`
+    const libNotes = await client.notesInfo(ids)
 
-    const entries = analyze({ pkg, guidMap, libNotes, mapping: state.mapping, settings })
+    const entries = analyze({ pkg, matches, libNotes, mapping: state.mapping, settings })
     const saved = load(reviewKey(state.pkgPath), {})
     state.resolutions = Object.fromEntries(
       entries.filter((e) => e.kind === 'conflict').map((e) => [e.guid, savedResolution(saved[e.guid], e)]),
