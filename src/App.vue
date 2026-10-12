@@ -194,11 +194,11 @@ footer.row { margin-top: 12px; }
 
 .field-maps > summary { cursor: pointer; }
 .field-maps[open] > summary { margin-bottom: 10px; }
-.field-maps .pair { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
 .map-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
 .map-foot { margin-top: 6px; }
 .map-foot button { margin-left: auto; }
-td.map-cell { padding: 4px 8px 14px 24px; }
+button.fields-toggle { margin-top: 10px; }
+.pair + .pair { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 14px; }
 table.map td:first-child { width: 28%; font-weight: 600; }
 table.map td:nth-child(2) { width: 36%; white-space: nowrap; }
 table.map select { min-width: 160px; }
