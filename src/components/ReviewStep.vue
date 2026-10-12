@@ -41,6 +41,10 @@ const move = (delta) => {
       <button :class="{ on: tab === 'new' }" @click="tab = 'new'"><b>{{ counts.new }}</b> new notes</button>
       <div><b>{{ counts.identical }}</b> identical</div>
     </div>
+    <p v-if="counts.shared" class="warn-text small">
+      {{ counts.shared }} package notes share a library note with another package note (marked ⚠). Where they want
+      different values for a field, applying is blocked until you skip one or make them agree.
+    </p>
     <p v-if="counts.ambiguous" class="warn-text small">
       {{ counts.ambiguous }} note(s) matched more than one library note by main field; the first match is used.
     </p>
@@ -55,7 +59,8 @@ const move = (delta) => {
             :class="[{ on: i === current }, state.resolutions[e.guid].status]"
             @click="current = i"
           >
-            <span class="icon">{{ STATUS_ICON[state.resolutions[e.guid].status] }}</span>{{ label(e) }}
+            <span class="icon">{{ STATUS_ICON[state.resolutions[e.guid].status] }}</span>
+            <span v-if="e.sharedWith.length" class="warn-text">⚠ </span>{{ label(e) }}
           </li>
         </ol>
         <ConflictMerge
@@ -76,7 +81,7 @@ const move = (delta) => {
         <tbody>
           <tr v-for="e in autos" :key="e.guid" :class="{ excluded: !included(e) }">
             <td><input type="checkbox" :checked="included(e)" @change="toggle(e)" /></td>
-            <td>{{ label(e) }}</td>
+            <td><span v-if="e.sharedWith.length" class="warn-text" title="Shares a library note with another package note">⚠ </span>{{ label(e) }}</td>
             <td class="small">
               <div v-for="f in e.fields.filter((x) => x.status === 'fill')" :key="f.name">
                 <b>{{ f.name }}:</b> {{ f.pkg }}

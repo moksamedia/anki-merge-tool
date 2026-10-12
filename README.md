@@ -24,7 +24,9 @@ No CORS setup is needed, because all HTTP calls go through the Rust side.
    - The target deck for new notes.
    - Which library note type each package note type maps to: an existing one (fields matched by name) or a newly created one.
 4. **Analyze and review:**
-   - Each package note is matched by GUID first, then by main field within the target note type.
+   - Each package note is matched by GUID first, then by main field within the target note type. Tick **Ignore GUIDs** to match on the main field only.
+   - The main-field comparison ignores markup, case, `&nbsp;`, whitespace, trailing tsheg/shad (`བཀྲ་ཤིས་` = `བཀྲ་ཤིས` = `བཀྲ་ཤིས།`) and how a stack is encoded in Unicode (U+0F43 = U+0F42 U+0FB7). This only affects matching; stored text is never changed.
+   - When several package notes match the same library note they are marked ⚠, and their changes are merged into a single update. If they want different values for the same field, applying is blocked until you skip one or make them agree.
    - **New:** the note is added to the target deck.
    - **Identical:** nothing to do.
    - **Auto:** only fills empty library fields and/or adds tags.

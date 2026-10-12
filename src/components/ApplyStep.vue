@@ -1,8 +1,16 @@
 <script setup>
 import { computed } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
+import { entryLabel } from '../lib/display.js'
 
-const { state, plan, applyMerge } = useMergeSession()
+const { state, settings, plan, applyMerge } = useMergeSession()
+
+const entriesByGuid = computed(() => new Map(state.entries.map((e) => [e.guid, e])))
+const labelOf = (guid) => entryLabel(entriesByGuid.value.get(guid), settings.mainField)
+const libLabelOf = (id) => {
+  const entry = state.entries.find((e) => e.libNote?.id === id)
+  return entry ? labelOf(entry.guid) : `note ${id}`
+}
 
 const pending = computed(
   () => Object.values(state.resolutions).filter((r) => r.status === 'pending').length,
@@ -37,8 +45,24 @@ const failures = computed(() => {
         <li>Copy <b>{{ plan.media.length }}</b> media files (existing differing files are kept; ours are renamed)</li>
       </ul>
       <p v-if="pending" class="warn-text">{{ pending }} conflict(s) are still undecided and will be skipped.</p>
+      <div v-if="plan.collisions.length" class="error">
+        <b>{{ plan.collisions.length }} field(s) where package notes disagree about the same library note.</b>
+        Go back to Review and skip (or untick) one of them, or make their results identical.
+        <ul class="small">
+          <li v-for="c in plan.collisions" :key="`${c.id}-${c.field}`">
+            <b>{{ libLabelOf(c.id) }}</b> · {{ c.field }}:
+            <span v-for="(v, i) in c.values" :key="v.guid">
+              {{ i ? ' vs ' : '' }}<code>{{ v.value || '(empty)' }}</code>
+            </span>
+          </li>
+        </ul>
+      </div>
       <p class="muted small">Close Anki's Browse window first — AnkiConnect can't update a note that's open in it.</p>
-      <button class="primary" :disabled="state.busy || nothingToDo || state.applied" @click="applyMerge">
+      <button
+        class="primary"
+        :disabled="state.busy || nothingToDo || state.applied || plan.collisions.length > 0"
+        @click="applyMerge"
+      >
         {{ state.busy ? state.progress : state.applied ? 'Applied' : 'Back up & merge' }}
       </button>
     </div>

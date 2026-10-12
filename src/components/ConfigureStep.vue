@@ -62,8 +62,16 @@ async function analyze() {
           <datalist id="field-names"><option v-for="f in allFieldNames" :key="f" :value="f" /></datalist>
         </label>
         <p class="muted small">
-          Notes match by GUID first; otherwise by this field (ignoring case and formatting) within the target note type. Falls
-          back to the first field when a note type lacks it.
+          Notes match by GUID first; otherwise by this field within the target note type, ignoring formatting, case, Unicode
+          spelling of stacks, and trailing tsheg/shad. Falls back to the first field when a note type lacks it.
+        </p>
+        <label class="toggle">
+          <input v-model="settings.ignoreGuid" type="checkbox" />
+          Ignore GUIDs — match on the main field only
+        </label>
+        <p v-if="settings.ignoreGuid" class="muted small">
+          Use when the package came from a different source than your notes, so shared GUIDs would be coincidental or
+          stale. Notes mapped to a newly created note type will all be added as new.
         </p>
         <label class="toggle">
           <input v-model="settings.autoFillEmpty" type="checkbox" />

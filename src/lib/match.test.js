@@ -26,6 +26,26 @@ describe('matchKey', () => {
   it('ignores markup, case, nbsp and whitespace', () => {
     expect(matchKey('<b>Hello</b>&nbsp; World ')).toBe('hello world')
   })
+
+  it('ignores trailing tsheg and shad', () => {
+    const key = matchKey('བཀྲ་ཤིས')
+    for (const v of ['བཀྲ་ཤིས་', 'བཀྲ་ཤིས།', 'བཀྲ་ཤིས་།', 'བཀྲ་ཤིས ། ', 'བཀྲ་ཤིས༎', 'བཀྲ་ཤིས༔']) {
+      expect(matchKey(v)).toBe(key)
+    }
+  })
+
+  it('keeps internal tshegs significant', () => {
+    expect(matchKey('བཀྲ་ཤིས')).not.toBe(matchKey('བཀྲཤིས'))
+  })
+
+  it('treats the non-breaking tsheg as a tsheg', () => {
+    expect(matchKey('ང\u0F0Cཀ')).toBe(matchKey('ང\u0F0Bཀ'))
+  })
+
+  it('matches precomposed and decomposed stacks', () => {
+    expect(matchKey('\u0F43')).toBe(matchKey('\u0F42\u0FB7')) // གྷ
+    expect(matchKey('\u0F73')).toBe(matchKey('\u0F71\u0F72')) // ཱི
+  })
 })
 
 describe('analyze', () => {
@@ -70,6 +90,41 @@ describe('analyze', () => {
   it('flags ambiguous main-field matches', () => {
     const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [libNote(1, ['ཀ', 'ka', '']), libNote(2, ['ཀ', 'ka', ''])])
     expect(r.ambiguous).toBe(true)
+  })
+
+  it('matches across tsheg/shad and Unicode spelling differences', () => {
+    const [r] = run([pkgNote('g', ['\u0F42\u0FB7་', 'gha', ''])], [libNote(1, ['\u0F43', 'gha', ''])])
+    expect(r.matchedBy).toBe('field')
+    expect(r.libNote.id).toBe(1)
+    // The stored Tibetan text still differs by a tsheg, so it is surfaced for review.
+    expect(r.fields.find((f) => f.name === 'Tibetan').status).toBe('conflict')
+  })
+
+  it('does not report a composition-only difference as a conflict', () => {
+    const [r] = run([pkgNote('g', ['\u0F42\u0FB7', 'gha', ''])], [libNote(1, ['\u0F43', 'gha', ''])])
+    expect(r.kind).toBe('identical')
+  })
+
+  it('can ignore GUIDs and match on the main field only', () => {
+    const notes = [pkgNote('g1', ['ཀ', 'ka', ''])]
+    const libs = [libNote(10, ['ཁ', 'kha', '']), libNote(11, ['ཀ', 'ka', ''])]
+    const [r] = analyze({
+      pkg: { notetypes: [notetype], notes, media: [] },
+      guidMap: { g1: 10 },
+      libNotes: libs,
+      mapping: { 1: { modelName: 'Tibetan Vocab', create: false } },
+      settings: { mainField: 'Tibetan', autoFillEmpty: true, ignoreGuid: true },
+    })
+    expect(r.matchedBy).toBe('field')
+    expect(r.libNote.id).toBe(11)
+  })
+
+  it('records package notes that share a library note', () => {
+    const results = run(
+      [pkgNote('a', ['ཀ', 'ka', '']), pkgNote('b', ['ཀ་', 'kaa', '']), pkgNote('c', ['ཁ', 'kha', ''])],
+      [libNote(1, ['ཀ', 'ka', '']), libNote(2, ['ཁ', 'kha', ''])],
+    )
+    expect(results.map((r) => r.sharedWith)).toEqual([['b'], ['a'], []])
   })
 
   it('only matches by GUID when the notetype is being created', () => {

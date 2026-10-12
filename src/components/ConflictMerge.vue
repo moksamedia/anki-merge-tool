@@ -63,6 +63,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         <span class="badge">{{ entry.notetype.name }} → {{ entry.libNote.modelName }}</span>
         <span class="badge">matched by {{ entry.matchedBy === 'guid' ? 'GUID' : 'main field' }}</span>
         <span v-if="entry.ambiguous" class="badge warn">several library notes share this main field — matched the first</span>
+        <span v-if="entry.sharedWith.length" class="badge warn">
+          {{ entry.sharedWith.length }} other package note{{ entry.sharedWith.length === 1 ? '' : 's' }} also match this
+          library note
+        </span>
         <span class="badge" :class="resolution.status">{{ resolution.status }}</span>
       </div>
       <div class="row">

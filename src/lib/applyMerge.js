@@ -1,10 +1,35 @@
-import { mediaReferences } from './match.js'
+import { mediaReferences, normalizeValue } from './match.js'
 
 const MULTI_CHUNK = 50
 const MEDIA_CHUNK = 20
 
 /**
+ * The field values an entry has an opinion about: fills for auto-merges; for
+ * accepted conflicts, every field that was in conflict or that the user edited.
+ * Keeping the library value of a conflicting field counts as an opinion.
+ */
+function desiredValues(entry, resolutions) {
+  if (entry.kind === 'auto') {
+    return Object.fromEntries(entry.fields.filter((f) => f.status === 'fill').map((f) => [f.name, f.pkg]))
+  }
+  const res = resolutions[entry.guid]
+  if (entry.kind === 'conflict' && res?.status === 'accepted') {
+    return Object.fromEntries(
+      entry.fields
+        .filter((f) => f.status !== 'same' || res.values[f.name] !== f.lib)
+        .map((f) => [f.name, res.values[f.name]]),
+    )
+  }
+  return null
+}
+
+/**
  * Turn analysis results + review decisions into concrete writes.
+ *
+ * Everything aimed at one library note is merged into a single update, so two
+ * package notes matching the same library note can't silently overwrite each
+ * other: where they want different values for a field, the plan reports a
+ * collision instead, and the UI blocks applying until it is resolved.
  *
  * @param entries      output of analyze()
  * @param resolutions  {guid: {status, values}} for conflict entries
@@ -13,9 +38,9 @@ const MEDIA_CHUNK = 20
  */
 export function buildPlan({ pkg, entries, resolutions, excluded, libModelFields, targetDeck }) {
   const newNotes = []
-  const updates = []
-  const tagAdds = []
   const modelsUsed = new Map()
+  const targets = new Map()
+  const collisions = new Map()
 
   for (const entry of entries) {
     if (excluded.has(entry.guid)) continue
@@ -31,21 +56,38 @@ export function buildPlan({ pkg, entries, resolutions, excluded, libModelFields,
       continue
     }
 
-    let changed = {}
-    if (entry.kind === 'auto') {
-      for (const f of entry.fields) if (f.status === 'fill') changed[f.name] = f.pkg
-    } else if (entry.kind === 'conflict') {
-      const res = resolutions[entry.guid]
-      if (res?.status !== 'accepted') continue
-      for (const f of entry.fields) {
-        if (res.values[f.name] !== f.lib) changed[f.name] = res.values[f.name]
-      }
-    } else {
-      continue
-    }
+    const desired = desiredValues(entry, resolutions)
+    if (!desired) continue
 
-    if (Object.keys(changed).length) updates.push({ guid: entry.guid, id: entry.libNote.id, fields: changed })
-    if (entry.tagsToAdd.length) tagAdds.push({ guid: entry.guid, id: entry.libNote.id, tags: entry.tagsToAdd })
+    const id = entry.libNote.id
+    if (!targets.has(id)) targets.set(id, { id, guids: [], want: {}, lib: {}, tags: new Map() })
+    const target = targets.get(id)
+    target.guids.push(entry.guid)
+    for (const f of entry.fields) target.lib[f.name] = f.lib
+    for (const tag of entry.tagsToAdd) target.tags.set(tag.toLowerCase(), tag)
+
+    for (const [name, value] of Object.entries(desired)) {
+      const prev = target.want[name]
+      if (!prev) {
+        target.want[name] = { value, guid: entry.guid }
+      } else if (normalizeValue(prev.value) !== normalizeValue(value)) {
+        const key = `${id}\u0000${name}`
+        if (!collisions.has(key)) collisions.set(key, { id, field: name, values: [{ guid: prev.guid, value: prev.value }] })
+        collisions.get(key).values.push({ guid: entry.guid, value })
+      }
+    }
+  }
+
+  const updates = []
+  const tagAdds = []
+  for (const t of targets.values()) {
+    const fields = Object.fromEntries(
+      Object.entries(t.want)
+        .filter(([name, w]) => w.value !== t.lib[name])
+        .map(([name, w]) => [name, w.value]),
+    )
+    if (Object.keys(fields).length) updates.push({ guids: t.guids, id: t.id, fields })
+    if (t.tags.size) tagAdds.push({ guids: t.guids, id: t.id, tags: [...t.tags.values()] })
   }
 
   const modelsToCreate = [...modelsUsed.entries()].map(([modelName, nt]) => ({
@@ -66,7 +108,7 @@ export function buildPlan({ pkg, entries, resolutions, excluded, libModelFields,
   const modelText = modelsToCreate.map((m) => m.css + m.cardTemplates.map((t) => t.Front + t.Back).join('')).join('')
   for (const name of pkg.media) if (name.startsWith('_') && modelText.includes(name)) media.add(name)
 
-  return { targetDeck, modelsToCreate, media: [...media], newNotes, updates, tagAdds }
+  return { targetDeck, modelsToCreate, media: [...media], newNotes, updates, tagAdds, collisions: [...collisions.values()] }
 }
 
 /** Rewrite references to media files Anki stored under a different name. */
@@ -115,6 +157,10 @@ export function createReport() {
  *                   backup path) if a later step throws
  */
 export async function executePlan(client, plan, { readMedia, onProgress = () => {}, report = createReport() }) {
+
+  if (plan.collisions.length) {
+    throw new Error('Some package notes disagree about the same library note — resolve them before applying.')
+  }
 
   onProgress('Creating collection backup…')
   try {
@@ -176,7 +222,7 @@ export async function executePlan(client, plan, { readMedia, onProgress = () => 
       })),
     )
     results.forEach((r, i) => {
-      if (r.error) report.updated.failed.push({ guid: batch[i].guid, error: r.error })
+      if (r.error) report.updated.failed.push({ guid: batch[i].guids.join(', '), error: r.error })
       else report.updated.ok++
     })
   }
@@ -187,7 +233,7 @@ export async function executePlan(client, plan, { readMedia, onProgress = () => 
       batch.map(({ id, tags }) => ({ action: 'addTags', params: { notes: [id], tags: tags.join(' ') } })),
     )
     results.forEach((r, i) => {
-      if (r.error) report.tagged.failed.push({ guid: batch[i].guid, error: r.error })
+      if (r.error) report.tagged.failed.push({ guid: batch[i].guids.join(', '), error: r.error })
       else report.tagged.ok++
     })
   }

@@ -10,6 +10,7 @@ const DEFAULT_SETTINGS = {
   bridgeUrl: 'http://127.0.0.1:8766',
   mainField: 'Tibetan',
   autoFillEmpty: true,
+  ignoreGuid: false,
 }
 
 function load(key, fallback) {
@@ -139,8 +140,11 @@ async function runAnalysis() {
     const { pkg } = state
     await loadModelFields()
 
-    state.progress = 'Looking up note GUIDs…'
-    const guidMap = await client.notesByGuid(pkg.notes.map((n) => n.guid))
+    let guidMap = {}
+    if (!settings.ignoreGuid) {
+      state.progress = 'Looking up note GUIDs…'
+      guidMap = await client.notesByGuid(pkg.notes.map((n) => n.guid))
+    }
 
     const models = [...new Set(Object.values(state.mapping).filter((m) => !m.create).map((m) => m.modelName))]
     const ids = new Set(Object.values(guidMap))
@@ -170,10 +174,11 @@ function savedResolution(saved, entry) {
 }
 
 const counts = computed(() => {
-  const c = { new: 0, identical: 0, auto: 0, conflict: 0, ambiguous: 0 }
+  const c = { new: 0, identical: 0, auto: 0, conflict: 0, ambiguous: 0, shared: 0 }
   for (const e of state.entries) {
     c[e.kind]++
     if (e.ambiguous) c.ambiguous++
+    if (e.sharedWith?.length) c.shared++
   }
   return c
 })

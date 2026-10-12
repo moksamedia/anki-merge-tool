@@ -1,18 +1,34 @@
 // Matching package notes to library notes and classifying the differences.
 // Pure functions — no Anki or Tauri access — so they are unit-tested directly.
 
-/** Normalise a field for equality checks: whitespace and &nbsp; differences don't count. */
+/**
+ * Normalise a field for equality checks: whitespace, &nbsp; and Unicode
+ * composition differences don't count. NFD makes a precomposed Tibetan stack
+ * (e.g. U+0F43 གྷ) equal to its two-codepoint spelling (U+0F42 U+0FB7).
+ */
 export function normalizeValue(value) {
   return (value ?? '')
+    .normalize('NFD')
     .replace(/&nbsp;|\u00a0/g, ' ')
     .replace(/<br\s*\/?>/gi, '<br>')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
-/** Key used to match notes by main field: also ignores markup and case. */
+// Trailing Tibetan punctuation that doesn't change which word a field names:
+// tsheg U+0F0B, shads U+0F0D–U+0F12, gter tsheg U+0F14 (plus whitespace between).
+const TRAILING_TIBETAN_PUNCT = /[\u0F0B\u0F0D-\u0F12\u0F14\s]+$/
+
+/**
+ * Key used to match notes by main field. Beyond normalizeValue it ignores
+ * markup, case, non-breaking vs normal tsheg, and trailing tsheg/shad, so
+ * བཀྲ་ཤིས་, བཀྲ་ཤིས and བཀྲ་ཤིས། all match. Used only for matching; stored text is untouched.
+ */
 export function matchKey(value) {
-  return normalizeValue((value ?? '').replace(/<[^>]*>/g, ' ')).toLowerCase()
+  return normalizeValue((value ?? '').replace(/<[^>]*>/g, ' '))
+    .replace(/\u0F0C/g, '\u0F0B')
+    .replace(TRAILING_TIBETAN_PUNCT, '')
+    .toLowerCase()
 }
 
 const isEmpty = (value) => matchKey(value) === '' && !/<img|\[sound:/i.test(value ?? '')
@@ -79,21 +95,22 @@ export function newTags(pkgTags, libTags) {
  * @param guidMap   {guid: libraryNoteId} from the bridge
  * @param libNotes  normalized library notes (GUID matches + notes of mapped models)
  * @param mapping   {pkgNotetypeId: {modelName, create}} target library model per package notetype
- * @param settings  {mainField, autoFillEmpty}
- * @returns array of {kind: new|identical|auto|conflict, ...}
+ * @param settings  {mainField, autoFillEmpty, ignoreGuid}
+ * @returns array of {kind: new|identical|auto|conflict, ...}. Matched entries carry
+ *          `sharedWith`: guids of other package notes matched to the same library note.
  */
 export function analyze({ pkg, guidMap, libNotes, mapping, settings }) {
   const notetypes = new Map(pkg.notetypes.map((nt) => [nt.id, nt]))
   const libById = new Map(libNotes.map((n) => [n.id, n]))
   const index = indexLibraryNotes(libNotes, settings.mainField)
 
-  return pkg.notes.map((note) => {
+  const entries = pkg.notes.map((note) => {
     const notetype = notetypes.get(note.notetypeId)
     const target = mapping[note.notetypeId]
     const fields = namedFields(note, notetype)
     const base = { guid: note.guid, pkgNote: note, notetype, target, pkgFields: fields }
 
-    let libNote = libById.get(guidMap[note.guid])
+    let libNote = settings.ignoreGuid ? undefined : libById.get(guidMap[note.guid])
     let matchedBy = libNote ? 'guid' : null
     let candidates = 0
     // A notetype being created can't have library notes yet, so only GUIDs can match it.
@@ -122,8 +139,23 @@ export function analyze({ pkg, guidMap, libNotes, mapping, settings }) {
       fields: comparison,
       dropped,
       tagsToAdd,
+      sharedWith: [],
     }
   })
+
+  // Several package notes can land on one library note (e.g. duplicates in the
+  // package). Record it so review can warn and the plan can catch disagreements.
+  const byTarget = new Map()
+  for (const e of entries) {
+    if (!e.libNote) continue
+    if (!byTarget.has(e.libNote.id)) byTarget.set(e.libNote.id, [])
+    byTarget.get(e.libNote.id).push(e)
+  }
+  for (const group of byTarget.values()) {
+    if (group.length < 2) continue
+    for (const e of group) e.sharedWith = group.filter((o) => o !== e).map((o) => o.guid)
+  }
+  return entries
 }
 
 /** Starting merged values: library for same/conflict fields, package for fills. */

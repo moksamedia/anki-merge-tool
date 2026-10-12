@@ -63,10 +63,11 @@ describe('buildPlan', () => {
     const p = plan()
     expect(p.newNotes).toHaveLength(1)
     expect(p.updates).toEqual([
-      { guid: 'a1', id: 100, fields: { Back: 'filled' } },
-      { guid: 'c1', id: 200, fields: { Front: 'merged' } },
+      { guids: ['a1'], id: 100, fields: { Back: 'filled' } },
+      { guids: ['c1'], id: 200, fields: { Front: 'merged' } },
     ])
-    expect(p.tagAdds).toEqual([{ guid: 'a1', id: 100, tags: ['extra'] }])
+    expect(p.tagAdds).toEqual([{ guids: ['a1'], id: 100, tags: ['extra'] }])
+    expect(p.collisions).toEqual([])
   })
 
   it('creates models for new notes and copies only referenced media', () => {
@@ -79,7 +80,74 @@ describe('buildPlan', () => {
     const p = buildPlan({ pkg, entries, resolutions, excluded: new Set(['n1', 'a1']), libModelFields: {}, targetDeck: 'D' })
     expect(p.newNotes).toHaveLength(0)
     expect(p.modelsToCreate).toHaveLength(0)
-    expect(p.updates.map((u) => u.guid)).toEqual(['c1'])
+    expect(p.updates.map((u) => u.guids)).toEqual([['c1']])
+  })
+})
+
+describe('buildPlan with several package notes on one library note', () => {
+  const lib = { id: 500 }
+  const conflictEntry = (guid, front, tags = []) => ({
+    kind: 'conflict',
+    guid,
+    libNote: lib,
+    fields: [
+      { name: 'Front', lib: 'old', pkg: front, status: 'conflict' },
+      { name: 'Back', lib: '', pkg: '', status: 'same' },
+    ],
+    tagsToAdd: tags,
+  })
+  const autoEntry = (guid, back) => ({
+    kind: 'auto',
+    guid,
+    libNote: lib,
+    fields: [
+      { name: 'Front', lib: 'old', pkg: 'old', status: 'same' },
+      { name: 'Back', lib: '', pkg: back, status: 'fill' },
+    ],
+    tagsToAdd: ['T'],
+  })
+  const build = (entries, resolutions = {}) =>
+    buildPlan({ pkg, entries, resolutions, excluded: new Set(), libModelFields: {}, targetDeck: 'D' })
+
+  it('reports a collision when accepted results disagree on a field', () => {
+    const p = build([conflictEntry('x', 'one'), conflictEntry('y', 'two')], {
+      x: { status: 'accepted', values: { Front: 'one', Back: '' } },
+      y: { status: 'accepted', values: { Front: 'two', Back: '' } },
+    })
+    expect(p.collisions).toEqual([
+      { id: 500, field: 'Front', values: [{ guid: 'x', value: 'one' }, { guid: 'y', value: 'two' }] },
+    ])
+  })
+
+  it('treats "keep the library value" as a decision that can collide', () => {
+    const p = build([conflictEntry('x', 'one'), conflictEntry('y', 'two')], {
+      x: { status: 'accepted', values: { Front: 'old', Back: '' } },
+      y: { status: 'accepted', values: { Front: 'two', Back: '' } },
+    })
+    expect(p.collisions.map((c) => c.field)).toEqual(['Front'])
+  })
+
+  it('merges compatible changes into one update and one tag call', () => {
+    const p = build([conflictEntry('x', 'one', ['a']), autoEntry('y', 'filled'), autoEntry('z', 'filled ')], {
+      x: { status: 'accepted', values: { Front: 'one', Back: '' } },
+    })
+    // x had no say over Back (identical, untouched), so y/z filling it is no disagreement.
+    expect(p.collisions).toEqual([])
+    expect(p.updates).toEqual([{ guids: ['x', 'y', 'z'], id: 500, fields: { Front: 'one', Back: 'filled' } }])
+    expect(p.tagAdds).toEqual([{ guids: ['x', 'y', 'z'], id: 500, tags: ['a', 'T'] }])
+    const q = build([autoEntry('y', 'filled'), autoEntry('z', 'filled ')])
+    expect(q.collisions).toEqual([]) // whitespace-only difference is not a disagreement
+    expect(q.updates).toEqual([{ guids: ['y', 'z'], id: 500, fields: { Back: 'filled' } }])
+    expect(q.tagAdds).toEqual([{ guids: ['y', 'z'], id: 500, tags: ['T'] }])
+  })
+
+  it('ignores skipped duplicates', () => {
+    const p = build([conflictEntry('x', 'one'), conflictEntry('y', 'two')], {
+      x: { status: 'accepted', values: { Front: 'one', Back: '' } },
+      y: { status: 'skipped', values: { Front: 'two', Back: '' } },
+    })
+    expect(p.collisions).toEqual([])
+    expect(p.updates).toEqual([{ guids: ['x'], id: 500, fields: { Front: 'one' } }])
   })
 })
 
@@ -127,6 +195,13 @@ describe('executePlan', () => {
     expect(added.fields.Front).toBe('<img src="a-1.jpg">')
     expect(report).toMatchObject({ added: { ok: 1 }, updated: { ok: 2 }, tagged: { ok: 1 } })
     expect(report.media.renamed).toEqual({ 'a.jpg': 'a-1.jpg' })
+  })
+
+  it('refuses a plan with collisions before backing up', async () => {
+    const client = fakeClient()
+    const bad = { ...plan(), collisions: [{ id: 1, field: 'Front', values: [] }] }
+    await expect(executePlan(client, bad, { readMedia })).rejects.toThrow(/disagree/)
+    expect(client.backup).not.toHaveBeenCalled()
   })
 
   it('collects per-note failures without aborting', async () => {
