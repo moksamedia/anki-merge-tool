@@ -6,7 +6,8 @@ import ConflictMerge from './ConflictMerge.vue'
 import FieldMapPanel from './FieldMapPanel.vue'
 
 const emit = defineEmits(['done'])
-const { state, settings, counts } = useMergeSession()
+const { state, settings, counts, pkgDeckName } = useMergeSession()
+const deckOf = (e) => (state.deckMode === 'package' && pkgDeckName(e.pkgNote.deckId)) || state.targetDeck
 
 const tab = ref(counts.value.conflict ? 'conflict' : 'auto')
 const current = ref(0)
@@ -107,14 +108,18 @@ const move = (delta) => {
     </div>
 
     <div v-else class="card">
-      <p class="muted small">Added to deck <b>{{ state.targetDeck }}</b>.</p>
+      <p class="muted small">
+        <template v-if="state.deckMode === 'package'">Each note is added to the deck it has in the package.</template>
+        <template v-else>Added to deck <b>{{ state.targetDeck }}</b>.</template>
+      </p>
       <table class="plain">
-        <thead><tr><th></th><th>Note</th><th>Note type</th><th>Tags</th></tr></thead>
+        <thead><tr><th></th><th>Note</th><th>Note type</th><th>Deck</th><th>Tags</th></tr></thead>
         <tbody>
           <tr v-for="e in news" :key="e.guid" :class="{ excluded: !included(e) }">
             <td><input type="checkbox" :checked="included(e)" @change="toggle(e)" /></td>
             <td>{{ label(e) }}</td>
             <td class="small">{{ e.target.modelName }}<span v-if="e.target.create" class="badge">new</span></td>
+            <td class="small">{{ deckOf(e) }}</td>
             <td class="small">{{ e.pkgNote.tags.join(', ') }}</td>
           </tr>
         </tbody>

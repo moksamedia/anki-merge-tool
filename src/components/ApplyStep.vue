@@ -5,6 +5,8 @@ import { entryLabel } from '../lib/display.js'
 
 const { state, settings, plan, applyMerge } = useMergeSession()
 
+const decksToCreate = computed(() => plan.value.decks.filter((d) => !state.libDecks.includes(d)))
+
 const entriesByGuid = computed(() => new Map(state.entries.map((e) => [e.guid, e])))
 const labelOf = (guid) => entryLabel(entriesByGuid.value.get(guid), settings.mainField)
 const libLabelOf = (id) => {
@@ -39,7 +41,13 @@ const failures = computed(() => {
       <ul>
         <li>Create a full collection backup (aborts if it fails)</li>
         <li v-if="plan.modelsToCreate.length">Create note types: {{ plan.modelsToCreate.map((m) => m.modelName).join(', ') }}</li>
-        <li>Add <b>{{ plan.newNotes.length }}</b> new notes to <b>{{ plan.targetDeck }}</b></li>
+        <li>
+          Add <b>{{ plan.newNotes.length }}</b> new notes to
+          <template v-if="plan.decks.length === 1"><b>{{ plan.decks[0] }}</b></template>
+          <template v-else-if="plan.decks.length"><b>{{ plan.decks.length }}</b> decks (their package decks)</template>
+          <template v-else>no decks (none selected)</template>
+          <span v-if="decksToCreate.length" class="muted small">— {{ decksToCreate.length }} deck(s) will be created</span>
+        </li>
         <li>Update fields on <b>{{ plan.updates.length }}</b> notes</li>
         <li>Add tags to <b>{{ plan.tagAdds.length }}</b> notes</li>
         <li>Copy <b>{{ plan.media.length }}</b> media files (existing differing files are kept; ours are renamed)</li>

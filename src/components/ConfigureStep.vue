@@ -69,7 +69,15 @@ const rows = computed(() =>
 
 const createNameTaken = (nt) => state.mapping[nt.id].create && state.libModels.includes(state.mapping[nt.id].modelName)
 
-const canAnalyze = computed(() => state.targetDeck.trim() && !usedTypes.value.some(createNameTaken))
+const pkgDeckCount = computed(() => new Set(state.pkg.notes.map((n) => n.deckId)).size)
+const newDecks = computed(() => {
+  const used = new Set(state.pkg.notes.map((n) => n.deckId))
+  return state.pkg.decks.filter((d) => used.has(d.id) && !state.libDecks.includes(d.name)).map((d) => d.name)
+})
+
+const canAnalyze = computed(
+  () => (state.deckMode === 'package' || state.targetDeck.trim()) && !usedTypes.value.some(createNameTaken),
+)
 
 async function analyze() {
   await runAnalysis()
@@ -109,15 +117,30 @@ async function analyze() {
       </div>
       <div class="card">
         <h3>New notes</h3>
-        <label>
+        <label class="toggle">
+          <input v-model="state.deckMode" type="radio" value="package" />
+          Keep each note's package deck
+          <span class="muted small">({{ pkgDeckCount }} deck{{ pkgDeckCount === 1 ? '' : 's' }})</span>
+        </label>
+        <p v-if="state.deckMode === 'package'" class="muted small">
+          <template v-if="newDecks.length">
+            {{ newDecks.length }} of these don't exist in the library and will be created, parents included.
+          </template>
+          <template v-else>All of these decks already exist in the library.</template>
+        </p>
+        <label class="toggle">
+          <input v-model="state.deckMode" type="radio" value="single" />
+          Put all new notes in one deck
+        </label>
+        <label v-if="state.deckMode === 'single'">
           Target deck
           <input v-model.trim="state.targetDeck" list="deck-names" />
           <datalist id="deck-names"><option v-for="d in state.libDecks" :key="d" :value="d" /></datalist>
         </label>
-        <p class="muted small">
+        <p v-if="state.deckMode === 'single'" class="muted small">
           {{ state.libDecks.includes(state.targetDeck) ? 'Existing deck.' : 'Will be created.' }}
-          Updated notes keep their current deck.
         </p>
+        <p class="muted small">Only new notes are placed; updated notes keep their current deck.</p>
       </div>
     </div>
 

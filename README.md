@@ -22,14 +22,14 @@ No CORS setup is needed, because all HTTP calls go through the Rust side.
 2. **Package:** pick an `.apkg` file. All formats are supported: `anki21b` (zstd + protobuf media map), `anki21` and `anki2`.
 3. **Configure:**
    - The main field (default `Tibetan`).
-   - The target deck for new notes.
+   - Where new notes go: each note's own package deck (the default when the package has several decks; missing decks are created, parents included), or one target deck for all of them.
    - Which library note type each package note type maps to: an existing one (fields matched by name) or a newly created one. When the two don't line up, the row shows which package fields won't be imported and offers **Map fields ▸**. That opens an optional field map, described under Review, with rows colored green for same name, yellow for a different name and red for no match.
 4. **Analyze and review:**
    - Each package note is matched by GUID first, then by main field across the **whole library**: any deck, any note type that has the main field (a candidate in the mapped note type is preferred). Tick **Ignore GUIDs** to match on the main field only.
    - A package note type without the main field falls back to its first field, matched only within the library note type it maps to.
    - The main-field comparison ignores markup, case, `&nbsp;`, whitespace, trailing tsheg/shad (`བཀྲ་ཤིས་` = `བཀྲ་ཤིས` = `བཀྲ་ཤིས།`) and how a stack is encoded in Unicode (U+0F43 = U+0F42 U+0FB7). This only affects matching; stored text is never changed.
    - When several package notes match the same library note they are marked ⚠, and their changes are merged into a single update. If they want different values for the same field, applying is blocked until you skip one or make them agree.
-   - **New:** the note is added to the target deck.
+   - **New:** the note is added to its package deck or the target deck, per the setting above. Updated notes keep their current deck.
    - **Identical:** nothing to do.
    - **Auto:** only fills empty library fields and/or adds tags.
    - **Conflict:** opens the side-by-side merge, with Library | Package | Result per field, word diffs and a rendered preview. Pick a side per field, combine both, or edit the result. Keys: `A` accept, `S` skip, `J`/`K` move between notes, `R` toggle rendered.

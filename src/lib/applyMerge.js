@@ -35,9 +35,14 @@ function desiredValues(entry, resolutions) {
  * @param entries      output of analyze()
  * @param resolutions  {guid: {status, values}} for conflict entries
  * @param excluded     Set of guids the user excluded (auto-merges and new notes)
+ * @param deckMode     'package': each new note goes to the deck it had in the
+ *                     package (created if missing); 'single': all go to targetDeck
  */
-export function buildPlan({ pkg, entries, resolutions, excluded, targetDeck }) {
+export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'single', targetDeck }) {
   const newNotes = []
+  const pkgDeckNames = new Map((pkg.decks ?? []).map((d) => [d.id, d.name]))
+  const deckFor = (entry) =>
+    (deckMode === 'package' && pkgDeckNames.get(entry.pkgNote.deckId)) || targetDeck
   const modelsUsed = new Map()
   const targets = new Map()
   const collisions = new Map()
@@ -50,7 +55,7 @@ export function buildPlan({ pkg, entries, resolutions, excluded, targetDeck }) {
       // A created model is the package's own note type, so fields carry over as-is.
       const fields = create ? { ...entry.pkgFields } : mapFields(entry.pkgFields, entry.fieldMap)
       if (create) modelsUsed.set(modelName, entry.notetype)
-      newNotes.push({ guid: entry.guid, deckName: targetDeck, modelName, fields, tags: entry.pkgNote.tags })
+      newNotes.push({ guid: entry.guid, deckName: deckFor(entry), modelName, fields, tags: entry.pkgNote.tags })
       continue
     }
 
@@ -106,7 +111,8 @@ export function buildPlan({ pkg, entries, resolutions, excluded, targetDeck }) {
   const modelText = modelsToCreate.map((m) => m.css + m.cardTemplates.map((t) => t.Front + t.Back).join('')).join('')
   for (const name of pkg.media) if (name.startsWith('_') && modelText.includes(name)) media.add(name)
 
-  return { targetDeck, modelsToCreate, media: [...media], newNotes, updates, tagAdds, collisions: [...collisions.values()] }
+  const decks = [...new Set(newNotes.map((n) => n.deckName))].sort()
+  return { deckMode, targetDeck, decks, modelsToCreate, media: [...media], newNotes, updates, tagAdds, collisions: [...collisions.values()] }
 }
 
 /** Rewrite references to media files Anki stored under a different name. */
@@ -167,8 +173,11 @@ export async function executePlan(client, plan, { readMedia, onProgress = () => 
     throw new Error(`Backup failed — nothing was changed. ${e}`, { cause: e })
   }
 
-  onProgress(`Ensuring deck "${plan.targetDeck}"…`)
-  if (plan.newNotes.length) await client.call('createDeck', { deck: plan.targetDeck })
+  // createDeck is a no-op for decks that already exist, and creates parents of "A::B::C".
+  for (const deck of plan.decks) {
+    onProgress(`Ensuring deck "${deck}"…`)
+    await client.call('createDeck', { deck })
+  }
 
   for (const model of plan.modelsToCreate) {
     onProgress(`Creating note type "${model.modelName}"…`)

@@ -52,6 +52,8 @@ const state = reactive({
   mapping: {},
   // {pairKey: {libraryField: packageField | ''}} per (package type, library type) pair.
   fieldMaps: {},
+  // 'package' keeps each new note in its package deck; 'single' sends all to targetDeck.
+  deckMode: 'single',
   targetDeck: '',
   busy: false,
   progress: '',
@@ -119,7 +121,15 @@ async function checkConnection() {
   state.connection.checking = false
 }
 
-/** Most common deck among the package's notes — the natural default target. */
+/** Name of a package deck by id, if the package lists it. */
+const pkgDeckName = (id) => state.pkg?.decks.find((d) => d.id === id)?.name
+
+/** Number of distinct decks the package's notes live in. */
+function noteDeckCount(pkg) {
+  return new Set(pkg.notes.map((n) => n.deckId)).size
+}
+
+/** Most common deck among the package's notes — the natural single-deck target. */
 function dominantDeck(pkg) {
   const counts = new Map()
   for (const n of pkg.notes) counts.set(n.deckId, (counts.get(n.deckId) ?? 0) + 1)
@@ -140,6 +150,7 @@ async function openPackage() {
     state.libModels = models.sort()
     state.libDecks = decks.sort()
     state.targetDeck = dominantDeck(pkg)
+    state.deckMode = noteDeckCount(pkg) > 1 ? 'package' : 'single'
     state.mapping = Object.fromEntries(
       pkg.notetypes.map((nt) => [nt.id, { modelName: nt.name, create: !models.includes(nt.name) }]),
     )
@@ -316,6 +327,7 @@ const plan = computed(() =>
         entries: state.entries,
         resolutions: state.resolutions,
         excluded: state.excluded,
+        deckMode: state.deckMode,
         targetDeck: state.targetDeck,
       })
     : null,
@@ -375,5 +387,6 @@ export function useMergeSession() {
     runAnalysis,
     applyMerge,
     resolveMedia,
+    pkgDeckName,
   }
 }

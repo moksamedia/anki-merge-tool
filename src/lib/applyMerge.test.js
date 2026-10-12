@@ -10,7 +10,14 @@ const notetype = {
   templates: [{ name: 'Card 1', qfmt: '{{Front}}', afmt: '{{Back}}' }],
 }
 
-const pkg = { notetypes: [notetype], media: ['a.jpg', '_tibetan.ttf', 'unused.png'] }
+const pkg = {
+  notetypes: [notetype],
+  media: ['a.jpg', '_tibetan.ttf', 'unused.png'],
+  decks: [
+    { id: 1, name: 'Ocean::1 Basics' },
+    { id: 2, name: 'Ocean::2 Patterns' },
+  ],
+}
 
 const entries = [
   {
@@ -19,7 +26,7 @@ const entries = [
     notetype,
     target: { modelName: 'Vocab', create: true },
     pkgFields: { Front: '<img src="a.jpg">', Back: 'b' },
-    pkgNote: { tags: ['t'] },
+    pkgNote: { tags: ['t'], deckId: 2 },
   },
   {
     kind: 'auto',
@@ -88,6 +95,26 @@ describe('buildPlan', () => {
     }
     const p = buildPlan({ pkg, entries: [entry], resolutions: {}, excluded: new Set(), targetDeck: 'D' })
     expect(p.newNotes[0].fields).toEqual({ front: 'f', BACK: 'b' })
+  })
+
+  it('places new notes in their package decks when deckMode is package', () => {
+    const second = { ...entries[0], guid: 'n2', pkgNote: { tags: [], deckId: 1 } }
+    const orphan = { ...entries[0], guid: 'n3', pkgNote: { tags: [], deckId: 999 } }
+    const p = buildPlan({
+      pkg,
+      entries: [entries[0], second, orphan],
+      resolutions,
+      excluded: new Set(),
+      deckMode: 'package',
+      targetDeck: 'Fallback',
+    })
+    expect(p.newNotes.map((n) => n.deckName)).toEqual(['Ocean::2 Patterns', 'Ocean::1 Basics', 'Fallback'])
+    expect(p.decks).toEqual(['Fallback', 'Ocean::1 Basics', 'Ocean::2 Patterns'])
+  })
+
+  it('uses the single target deck by default', () => {
+    expect(plan().newNotes.map((n) => n.deckName)).toEqual(['Imported'])
+    expect(plan().decks).toEqual(['Imported'])
   })
 
   it('honours exclusions', () => {
@@ -197,7 +224,10 @@ describe('executePlan', () => {
     const report = await executePlan(client, plan(), { readMedia })
 
     expect(client.backup.mock.invocationCallOrder[0]).toBeLessThan(client.call.mock.invocationCallOrder[0])
-    expect(client.call.mock.calls.map((c) => c[0])).toEqual(['createDeck', 'createModel'])
+    expect(client.call.mock.calls.map((c) => [c[0], c[1].deck ?? c[1].modelName])).toEqual([
+      ['createDeck', 'Imported'],
+      ['createModel', 'Vocab'],
+    ])
     expect(client.multi.mock.calls.map((c) => c[0][0].action)).toEqual([
       'storeMediaFile',
       'addNote',
@@ -209,6 +239,13 @@ describe('executePlan', () => {
     expect(added.fields.Front).toBe('<img src="a-1.jpg">')
     expect(report).toMatchObject({ added: { ok: 1 }, updated: { ok: 2 }, tagged: { ok: 1 } })
     expect(report.media.renamed).toEqual({ 'a.jpg': 'a-1.jpg' })
+  })
+
+  it('creates every deck the plan needs', async () => {
+    const client = fakeClient()
+    const p = { ...plan(), decks: ['A', 'B::C'], newNotes: [] }
+    await executePlan(client, p, { readMedia })
+    expect(client.call.mock.calls.filter((c) => c[0] === 'createDeck').map((c) => c[1].deck)).toEqual(['A', 'B::C'])
   })
 
   it('refuses a plan with collisions before backing up', async () => {
