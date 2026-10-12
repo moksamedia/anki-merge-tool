@@ -1,4 +1,5 @@
-import { lookupField, mediaReferences, normalizeValue } from './match.js'
+import { mediaReferences, normalizeValue } from './match.js'
+import { mapFields } from './fieldMap.js'
 
 const MULTI_CHUNK = 50
 const MEDIA_CHUNK = 20
@@ -34,9 +35,8 @@ function desiredValues(entry, resolutions) {
  * @param entries      output of analyze()
  * @param resolutions  {guid: {status, values}} for conflict entries
  * @param excluded     Set of guids the user excluded (auto-merges and new notes)
- * @param libModelFields {modelName: [fieldNames]} for existing library models
  */
-export function buildPlan({ pkg, entries, resolutions, excluded, libModelFields, targetDeck }) {
+export function buildPlan({ pkg, entries, resolutions, excluded, targetDeck }) {
   const newNotes = []
   const modelsUsed = new Map()
   const targets = new Map()
@@ -47,12 +47,8 @@ export function buildPlan({ pkg, entries, resolutions, excluded, libModelFields,
 
     if (entry.kind === 'new') {
       const { modelName, create } = entry.target
-      const allowed = create ? entry.notetype.fields : libModelFields[modelName] ?? []
-      const fields = {}
-      for (const name of allowed) {
-        const pkgName = lookupField(entry.pkgFields, name)
-        if (pkgName) fields[name] = entry.pkgFields[pkgName]
-      }
+      // A created model is the package's own note type, so fields carry over as-is.
+      const fields = create ? { ...entry.pkgFields } : mapFields(entry.pkgFields, entry.fieldMap)
       if (create) modelsUsed.set(modelName, entry.notetype)
       newNotes.push({ guid: entry.guid, deckName: targetDeck, modelName, fields, tags: entry.pkgNote.tags })
       continue

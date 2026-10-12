@@ -56,7 +56,7 @@ const resolutions = {
 }
 
 const plan = () =>
-  buildPlan({ pkg, entries, resolutions, excluded: new Set(), libModelFields: {}, targetDeck: 'Imported' })
+  buildPlan({ pkg, entries, resolutions, excluded: new Set(), targetDeck: 'Imported' })
 
 describe('buildPlan', () => {
   it('collects only accepted conflicts and changed fields', () => {
@@ -76,21 +76,22 @@ describe('buildPlan', () => {
     expect(p.media.sort()).toEqual(['_tibetan.ttf', 'a.jpg'])
   })
 
-  it('maps new-note fields onto the library model case-insensitively', () => {
+  it('writes new notes for an existing model through its field map', () => {
     const entry = {
       kind: 'new',
       guid: 'n2',
       notetype,
       target: { modelName: 'Vocab', create: false },
       pkgFields: { Front: 'f', Back: 'b' },
+      fieldMap: { front: 'Front', BACK: 'Back', Notes: '' },
       pkgNote: { tags: [] },
     }
-    const p = buildPlan({ pkg, entries: [entry], resolutions: {}, excluded: new Set(), libModelFields: { Vocab: ['front', 'BACK'] }, targetDeck: 'D' })
+    const p = buildPlan({ pkg, entries: [entry], resolutions: {}, excluded: new Set(), targetDeck: 'D' })
     expect(p.newNotes[0].fields).toEqual({ front: 'f', BACK: 'b' })
   })
 
   it('honours exclusions', () => {
-    const p = buildPlan({ pkg, entries, resolutions, excluded: new Set(['n1', 'a1']), libModelFields: {}, targetDeck: 'D' })
+    const p = buildPlan({ pkg, entries, resolutions, excluded: new Set(['n1', 'a1']), targetDeck: 'D' })
     expect(p.newNotes).toHaveLength(0)
     expect(p.modelsToCreate).toHaveLength(0)
     expect(p.updates.map((u) => u.guids)).toEqual([['c1']])
@@ -120,7 +121,7 @@ describe('buildPlan with several package notes on one library note', () => {
     tagsToAdd: ['T'],
   })
   const build = (entries, resolutions = {}) =>
-    buildPlan({ pkg, entries, resolutions, excluded: new Set(), libModelFields: {}, targetDeck: 'D' })
+    buildPlan({ pkg, entries, resolutions, excluded: new Set(), targetDeck: 'D' })
 
   it('reports a collision when accepted results disagree on a field', () => {
     const p = build([conflictEntry('x', 'one'), conflictEntry('y', 'two')], {

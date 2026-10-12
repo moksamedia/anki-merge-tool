@@ -1,8 +1,9 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { entryLabel } from '../lib/display.js'
 import ConflictMerge from './ConflictMerge.vue'
+import FieldMapPanel from './FieldMapPanel.vue'
 
 const emit = defineEmits(['done'])
 const { state, settings, counts } = useMergeSession()
@@ -24,6 +25,12 @@ function toggle(e) {
   if (state.excluded.has(e.guid)) state.excluded.delete(e.guid)
   else state.excluded.add(e.guid)
 }
+
+// Remapping fields re-classifies, which can shrink the conflict list.
+watch(
+  () => conflicts.value.length,
+  (n) => (current.value = Math.max(0, Math.min(current.value, n - 1))),
+)
 
 const move = (delta) => {
   current.value = Math.min(conflicts.value.length - 1, Math.max(0, current.value + delta))
@@ -49,9 +56,11 @@ const move = (delta) => {
       {{ counts.ambiguous }} note(s) matched more than one library note by main field; the first match is used.
     </p>
     <p v-if="counts.dropped" class="warn-text small">
-      {{ counts.dropped }} matched note(s) have package content in fields their library note type lacks; that content is
-      not merged (each note's merge view lists the fields).
+      {{ counts.dropped }} matched note(s) have package content in fields not mapped to their library note type; that
+      content is not merged (each note's merge view lists the fields; map them under Field mapping below).
     </p>
+
+    <FieldMapPanel />
 
     <div v-if="tab === 'conflict'">
       <p v-if="!conflicts.length" class="muted">No conflicts.</p>

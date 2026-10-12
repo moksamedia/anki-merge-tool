@@ -1,6 +1,8 @@
 // Matching package notes to library notes and classifying the differences.
 // Pure functions — no Anki or Tauri access — so they are unit-tested directly.
 
+import { defaultFieldMap, pairKey } from './fieldMap.js'
+
 /**
  * Normalise a field for equality checks: whitespace, &nbsp; and Unicode
  * composition differences don't count. NFD makes a precomposed Tibetan stack
@@ -36,13 +38,6 @@ const isEmpty = (value) => matchKey(value) === '' && !/<img|\[sound:/i.test(valu
 /** Package note fields as {name: value} using its notetype's field order. */
 export function namedFields(note, notetype) {
   return Object.fromEntries(notetype.fields.map((name, i) => [name, note.fields[i] ?? '']))
-}
-
-/** The package field matching a library field name: exact, else case-insensitive ("tibetan" ↔ "Tibetan"). */
-export function lookupField(pkgFields, name) {
-  if (name in pkgFields) return name
-  const lower = name.toLowerCase()
-  return Object.keys(pkgFields).find((k) => k.toLowerCase() === lower)
 }
 
 /** The configured main field as spelled in this field list (case-insensitive), or undefined. */
@@ -139,21 +134,24 @@ export function selectMatches({ pkg, guidMap, records, mapping, settings }) {
 /**
  * Compare a package note to its library match field by field.
  * Statuses: same | fill (library empty, package has content) | conflict.
- * Package fields absent from the library model are reported as `dropped`.
+ * `fieldMap` ({libraryField: packageField}) says which package field feeds each
+ * library field; by default fields pair by name. Each comparison row records its
+ * source as `pkgName`. Package fields with content that feed nothing are `dropped`.
  */
-export function compareFields(pkgFields, libNote, { autoFillEmpty = true } = {}) {
+export function compareFields(pkgFields, libNote, { autoFillEmpty = true } = {}, fieldMap = null) {
+  const map = fieldMap ?? defaultFieldMap(Object.keys(pkgFields), libNote.fieldOrder)
   const fields = []
   const used = new Set()
   for (const name of libNote.fieldOrder) {
     const lib = libNote.fields[name] ?? ''
-    const pkgName = lookupField(pkgFields, name)
+    const pkgName = map[name] && map[name] in pkgFields ? map[name] : ''
     if (pkgName) used.add(pkgName)
     const pkg = pkgName ? pkgFields[pkgName] : undefined
     let status = 'same'
     if (pkg !== undefined && !isEmpty(pkg) && normalizeValue(pkg) !== normalizeValue(lib)) {
       status = isEmpty(lib) && autoFillEmpty ? 'fill' : 'conflict'
     }
-    fields.push({ name, lib, pkg: pkg ?? '', status })
+    fields.push({ name, pkgName, lib, pkg: pkg ?? '', status })
   }
   const dropped = Object.keys(pkgFields).filter((name) => !used.has(name) && !isEmpty(pkgFields[name]))
   return { fields, dropped }
@@ -172,12 +170,17 @@ export function newTags(pkgTags, libTags) {
  * @param libNotes  full normalized library notes for the matched ids
  * @param mapping   {pkgNotetypeId: {modelName, create}} target library model per package notetype
  * @param settings  {autoFillEmpty}
+ * @param fieldMaps {pairKey: fieldMap} chosen field maps; pairs without one pair fields by name
+ * @param libModelFields {modelName: [fieldNames]}, for new notes added to an existing model
  * @returns array of {kind: new|identical|auto|conflict, ...}. Matched entries carry
  *          `sharedWith`: guids of other package notes matched to the same library note.
+ *          Entries written to an existing model carry the `fieldMap` used.
  */
-export function analyze({ pkg, matches, libNotes, mapping, settings }) {
+export function analyze({ pkg, matches, libNotes, mapping, settings, fieldMaps = {}, libModelFields = {} }) {
   const notetypes = new Map(pkg.notetypes.map((nt) => [nt.id, nt]))
   const libById = new Map(libNotes.map((n) => [n.id, n]))
+  const fieldMapFor = (notetype, modelName, libFields) =>
+    fieldMaps[pairKey(notetype.id, modelName)] ?? defaultFieldMap(notetype.fields, libFields)
 
   const entries = pkg.notes.map((note) => {
     const notetype = notetypes.get(note.notetypeId)
@@ -188,10 +191,14 @@ export function analyze({ pkg, matches, libNotes, mapping, settings }) {
     const match = matches.get(note.guid)
     // A note deleted between phases simply comes back unmatched.
     const libNote = match && libById.get(match.libId)
-    if (!libNote) return { ...base, kind: 'new' }
+    if (!libNote) {
+      const fieldMap = target.create ? null : fieldMapFor(notetype, target.modelName, libModelFields[target.modelName] ?? [])
+      return { ...base, kind: 'new', fieldMap }
+    }
     const { matchedBy, candidates } = match
 
-    const { fields: comparison, dropped } = compareFields(fields, libNote, settings)
+    const fieldMap = fieldMapFor(notetype, libNote.modelName, libNote.fieldOrder)
+    const { fields: comparison, dropped } = compareFields(fields, libNote, settings, fieldMap)
     const tagsToAdd = newTags(note.tags, libNote.tags)
     const hasConflict = comparison.some((f) => f.status === 'conflict')
     const hasFill = comparison.some((f) => f.status === 'fill')
@@ -201,6 +208,7 @@ export function analyze({ pkg, matches, libNotes, mapping, settings }) {
       ...base,
       kind,
       libNote,
+      fieldMap,
       matchedBy,
       ambiguous: candidates > 1,
       fields: comparison,
@@ -226,12 +234,13 @@ export function analyze({ pkg, matches, libNotes, mapping, settings }) {
 }
 
 /**
- * Identifies the library side a resolution was made against. A saved decision
- * is only reused while this is unchanged, so editing the note in Anki (or a
- * different note matching next time) invalidates it.
+ * Identifies what a resolution was made against: the library note's values and
+ * which package field fed each of them. A saved decision is only reused while
+ * this is unchanged, so editing the note in Anki, a different note matching
+ * next time, or remapping a field invalidates it.
  */
 export function libraryFingerprint(entry) {
-  return [entry.libNote.id, ...entry.fields.map((f) => f.lib)].join('\u0000')
+  return [entry.libNote.id, ...entry.fields.map((f) => `${f.pkgName}\u0001${f.lib}`)].join('\u0000')
 }
 
 /** Starting merged values: library for same/conflict fields, package for fills. */

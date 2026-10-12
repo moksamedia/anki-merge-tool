@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { mainFieldName } from '../lib/match.js'
+import { sameNamedField } from '../lib/fieldMap.js'
 
 const emit = defineEmits(['done'])
 const { settings, state, loadModelFields, runAnalysis } = useMergeSession()
@@ -36,7 +37,7 @@ function fieldReport(nt) {
   const m = state.mapping[nt.id]
   if (m.create) return { missing: [], main: mainFieldName(nt.fields, settings.mainField) }
   const lib = state.libModelFields[m.modelName] ?? []
-  return { missing: nt.fields.filter((f) => !lib.includes(f)), main: mainFieldName(lib, settings.mainField) }
+  return { missing: nt.fields.filter((f) => !sameNamedField(lib, f)), main: mainFieldName(lib, settings.mainField) }
 }
 
 const createNameTaken = (nt) => state.mapping[nt.id].create && state.libModels.includes(state.mapping[nt.id].modelName)
@@ -111,7 +112,7 @@ async function analyze() {
             <td class="small">
               <span>matching on <b>{{ fieldReport(nt).main }}</b></span>
               <span v-if="fieldReport(nt).missing.length" class="warn-text">
-                · not in library type (ignored): {{ fieldReport(nt).missing.join(', ') }}
+                · no same-named library field: {{ fieldReport(nt).missing.join(', ') }} (can be mapped in Review)
               </span>
             </td>
           </tr>

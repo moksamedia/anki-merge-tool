@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { pairKey } from './fieldMap.js'
 import { analyze, compareFields, initialResolution, libraryFingerprint, matchKey, mediaReferences, selectMatches, toRecord } from './match.js'
 
 const notetype = { id: 1, name: 'Tibetan Vocab', fields: ['Tibetan', 'English', 'Notes'], templates: [] }
@@ -16,12 +17,12 @@ const libNote = (id, fields, tags = [], modelName = 'Tibetan Vocab', fieldOrder 
 const DEFAULT_MAPPING = { 1: { modelName: 'Tibetan Vocab', create: false } }
 
 // Mirrors runAnalysis: phase 1 on lightweight records, phase 2 on full notes.
-function run(notes, libNotes, guidMap = {}, mapping = DEFAULT_MAPPING, extra = {}, notetypes = [notetype]) {
+function run(notes, libNotes, guidMap = {}, mapping = DEFAULT_MAPPING, extra = {}, notetypes = [notetype], phase2 = {}) {
   const settings = { mainField: 'tibetan', autoFillEmpty: true, ...extra }
   const pkg = { notetypes, notes, media: [] }
   const records = libNotes.map((n) => toRecord(n, settings.mainField))
   const matches = selectMatches({ pkg, guidMap, records, mapping, settings })
-  return analyze({ pkg, matches, libNotes, mapping, settings })
+  return analyze({ pkg, matches, libNotes, mapping, settings, ...phase2 })
 }
 
 describe('matchKey', () => {
@@ -187,6 +188,39 @@ describe('field names', () => {
       ['Notes', 'fill'],
     ])
     expect(r.dropped).toEqual([])
+  })
+})
+
+describe('field maps', () => {
+  const sentences = (fields) => libNote(7, fields, [], 'Tibetan Sentences', ['Tibetan', 'Gloss', 'Extra'])
+  const glossFromEnglish = { [pairKey(1, 'Tibetan Sentences')]: { Tibetan: 'Tibetan', Gloss: 'English', Extra: 'Notes' } }
+
+  it('compares a cross-type match through the chosen map', () => {
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', 'n'])], [sentences(['ཀ', 'kaa', ''])], {}, DEFAULT_MAPPING, {}, [notetype], {
+      fieldMaps: glossFromEnglish,
+    })
+    expect(r.fields.map((f) => [f.name, f.pkgName, f.status])).toEqual([
+      ['Tibetan', 'Tibetan', 'same'],
+      ['Gloss', 'English', 'conflict'],
+      ['Extra', 'Notes', 'fill'],
+    ])
+    expect(r.dropped).toEqual([])
+  })
+
+  it('gives new notes for an existing model the map for that pair', () => {
+    const mapping = { 1: { modelName: 'Words', create: false } }
+    const fieldMaps = { [pairKey(1, 'Words')]: { Word: 'Tibetan', Meaning: 'English' } }
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [], {}, mapping, {}, [notetype], { fieldMaps })
+    expect(r.kind).toBe('new')
+    expect(r.fieldMap).toEqual({ Word: 'Tibetan', Meaning: 'English' })
+  })
+
+  it('invalidates a decision when a field is remapped', () => {
+    const notes = [pkgNote('g', ['ཀ', 'ka', 'n'])]
+    const lib = [sentences(['ཀ', 'kaa', ''])]
+    const [byName] = run(notes, lib)
+    const [mapped] = run(notes, lib, {}, DEFAULT_MAPPING, {}, [notetype], { fieldMaps: glossFromEnglish })
+    expect(libraryFingerprint(byName)).not.toBe(libraryFingerprint(mapped))
   })
 })
 

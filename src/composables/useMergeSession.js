@@ -1,9 +1,10 @@
-import { computed, reactive, watch } from 'vue'
+import { computed, markRaw, reactive, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { createAnkiClient } from '../lib/ankiClient.js'
 import { analyze, initialResolution, libraryFingerprint, selectMatches } from '../lib/match.js'
 import { buildPlan, createReport, executePlan } from '../lib/applyMerge.js'
+import { defaultFieldMap, needsFieldMap, pairKey, reconcileFieldMap, savedPairKey } from '../lib/fieldMap.js'
 
 const DEFAULT_SETTINGS = {
   ankiConnectUrl: 'http://127.0.0.1:8765',
@@ -38,6 +39,9 @@ watch(settings, () => save('settings', settings), { deep: true })
 
 const client = createAnkiClient(settings)
 
+// Field maps the user chose, remembered across packages by note type names.
+const savedFieldMaps = load('fieldMaps', {})
+
 const state = reactive({
   connection: { anki: null, bridge: null, checking: false },
   pkgPath: null,
@@ -46,10 +50,15 @@ const state = reactive({
   libDecks: [],
   libModelFields: {},
   mapping: {},
+  // {pairKey: {libraryField: packageField | ''}} per (package type, library type) pair.
+  fieldMaps: {},
   targetDeck: '',
   busy: false,
   progress: '',
   error: null,
+  // Phase 1 results, kept so remapping fields re-classifies without asking Anki again.
+  matches: null,
+  libNotes: [],
   entries: [],
   resolutions: {},
   excluded: new Set(),
@@ -134,6 +143,9 @@ async function openPackage() {
     state.mapping = Object.fromEntries(
       pkg.notetypes.map((nt) => [nt.id, { modelName: nt.name, create: !models.includes(nt.name) }]),
     )
+    state.fieldMaps = {}
+    state.matches = null
+    state.libNotes = []
     state.entries = []
     state.resolutions = {}
     state.excluded = new Set()
@@ -171,18 +183,95 @@ async function runAnalysis() {
     const ids = [...new Set([...matches.values()].map((m) => m.libId))]
     state.progress = `Loading ${ids.length} matched library notes…`
     const libNotes = await client.notesInfo(ids)
+    for (const n of libNotes) state.libModelFields[n.modelName] ??= n.fieldOrder
 
-    const entries = analyze({ pkg, matches, libNotes, mapping: state.mapping, settings })
-    const saved = load(reviewKey(state.pkgPath), {})
-    state.resolutions = Object.fromEntries(
-      entries.filter((e) => e.kind === 'conflict').map((e) => [e.guid, savedResolution(saved[e.guid], e)]),
-    )
-    state.entries = entries
+    state.matches = markRaw(matches)
+    state.libNotes = markRaw(libNotes)
+    state.fieldMaps = initialFieldMaps()
+    classify(load(reviewKey(state.pkgPath), {}))
     state.excluded = new Set()
     state.applied = false
     state.attempted = false
   })
 }
+
+/**
+ * A field map for every (package type, existing library type) pair the analysis
+ * writes through: matched notes' library types, and the Configure target for
+ * new notes. Starts from the remembered map for those names, else by name.
+ */
+function initialFieldMaps() {
+  const notetypes = new Map(state.pkg.notetypes.map((nt) => [nt.id, nt]))
+  const libById = new Map(state.libNotes.map((n) => [n.id, n]))
+  const maps = {}
+  for (const note of state.pkg.notes) {
+    const nt = notetypes.get(note.notetypeId)
+    const target = state.mapping[nt.id]
+    const libNote = libById.get(state.matches.get(note.guid)?.libId)
+    const modelName = libNote?.modelName ?? (target.create ? null : target.modelName)
+    const key = modelName && pairKey(nt.id, modelName)
+    if (!key || maps[key]) continue
+    const saved = savedFieldMaps[savedPairKey(nt.name, modelName)]
+    maps[key] = reconcileFieldMap(saved, nt.fields, state.libModelFields[modelName] ?? [])
+  }
+  return maps
+}
+
+/** Phase 2: classify against the kept matches, reusing still-valid decisions from `previous`. */
+function classify(previous) {
+  const entries = analyze({
+    pkg: state.pkg,
+    matches: state.matches,
+    libNotes: state.libNotes,
+    mapping: state.mapping,
+    settings,
+    fieldMaps: state.fieldMaps,
+    libModelFields: state.libModelFields,
+  })
+  state.resolutions = Object.fromEntries(
+    entries.filter((e) => e.kind === 'conflict').map((e) => [e.guid, savedResolution(previous[e.guid], e)]),
+  )
+  state.entries = entries
+}
+
+/** Point a library field at a package field ('' for none) and re-classify. */
+function setFieldMap(pair, libField, pkgField) {
+  state.fieldMaps[pair.key][libField] = pkgField
+  rememberFieldMap(pair)
+}
+
+function resetFieldMap(pair) {
+  state.fieldMaps[pair.key] = defaultFieldMap(pair.notetype.fields, pair.libFields)
+  rememberFieldMap(pair)
+}
+
+function rememberFieldMap(pair) {
+  savedFieldMaps[savedPairKey(pair.notetype.name, pair.modelName)] = { ...state.fieldMaps[pair.key] }
+  save('fieldMaps', savedFieldMaps)
+  // Decisions whose package side changed are reset by the fingerprint check.
+  classify(state.resolutions)
+}
+
+/**
+ * Pairs whose note types don't line up (different names, or fields the
+ * same-name default leaves unpaired) — the ones the Fields step shows.
+ */
+const fieldPairs = computed(() => {
+  const pairs = new Map()
+  for (const e of state.entries) {
+    const modelName = e.libNote?.modelName ?? (e.fieldMap ? e.target.modelName : null)
+    if (!modelName) continue
+    const key = pairKey(e.notetype.id, modelName)
+    if (!pairs.has(key)) {
+      const libFields = state.libModelFields[modelName] ?? []
+      pairs.set(key, { key, notetype: e.notetype, modelName, libFields, matched: 0, added: 0, samples: [] })
+    }
+    const pair = pairs.get(key)
+    pair[e.libNote ? 'matched' : 'added']++
+    if (pair.samples.length < 20) pair.samples.push(e.pkgFields)
+  }
+  return [...pairs.values()].filter((p) => needsFieldMap(p.notetype, p.modelName, p.libFields))
+})
 
 /** Reuse a saved decision only if the library note it was made against is unchanged. */
 function savedResolution(saved, entry) {
@@ -215,7 +304,6 @@ const plan = computed(() =>
         entries: state.entries,
         resolutions: state.resolutions,
         excluded: state.excluded,
-        libModelFields: state.libModelFields,
         targetDeck: state.targetDeck,
       })
     : null,
@@ -265,6 +353,9 @@ export function useMergeSession() {
     state,
     counts,
     plan,
+    fieldPairs,
+    setFieldMap,
+    resetFieldMap,
     checkConnection,
     openPackage,
     loadModelFields,

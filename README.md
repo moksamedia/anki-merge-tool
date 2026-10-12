@@ -33,6 +33,7 @@ No CORS setup is needed, because all HTTP calls go through the Rust side.
    - **Identical:** nothing to do.
    - **Auto:** only fills empty library fields and/or adds tags.
    - **Conflict:** opens the side-by-side merge, with Library | Package | Result per field, word diffs and a rendered preview. Pick a side per field, combine both, or edit the result. Keys: `A` accept, `S` skip, `J`/`K` move between notes, `R` toggle rendered.
+   - **Field mapping** (optional, collapsed): fields pair by name (case-insensitively) unless you say otherwise. When a package note type meets a library note type that doesn't line up with it — matched notes in a differently named type, or a target type with fields the other side lacks — Review shows a collapsed **Field mapping** panel listing each pair. Open it to pick which package field fills each library field, or nothing. One package field can fill several library fields. Choices are remembered by note type names for later packages. A change re-classifies at once, with no trip to Anki, and resets any review decision whose package side changed.
    - Review decisions are saved per package file, so a long review can be resumed.
 5. **Apply:**
    - Runs the backup first and stops if it fails.

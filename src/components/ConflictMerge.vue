@@ -85,6 +85,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         <tr v-for="f in shownFields" :key="f.name" :class="f.status">
           <th>
             {{ f.name }}
+            <small v-if="f.pkgName && f.pkgName !== f.name">← {{ f.pkgName }}</small>
             <small>{{ STATUS_LABEL[f.status] }}</small>
           </th>
           <td>
@@ -113,7 +114,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     </button>
     <p v-if="entry.tagsToAdd.length" class="muted">Tags added on accept: {{ entry.tagsToAdd.join(', ') }}</p>
     <p v-if="entry.dropped.length" class="warn-text">
-      Package fields not in the library note type (ignored): {{ entry.dropped.join(', ') }}
+      Package fields not mapped to the library note type (ignored): {{ entry.dropped.join(', ') }}
     </p>
 
     <footer class="row">

@@ -187,5 +187,15 @@ table.fields tr.fill th { background: var(--fill-bg); }
 .preview .sound { font-size: 12px; color: var(--muted); }
 .result .preview { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
 footer.row { margin-top: 12px; }
+
+.field-maps > summary { cursor: pointer; }
+.field-maps[open] > summary { margin-bottom: 10px; }
+.field-maps .pair { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.map-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.map-head button { margin-left: auto; }
+table.map td:first-child { width: 28%; font-weight: 600; }
+table.map td:nth-child(2) { width: 36%; white-space: nowrap; }
+table.map select { min-width: 160px; }
+table.map tr.unset td:first-child { color: var(--muted); font-weight: normal; }
 footer.row button.primary { margin-top: 0; }
 </style>
