@@ -75,3 +75,5 @@ Layout:
 - `src/components/`: the step views and `ConflictMerge.vue`.
 
 Parser fixtures in `src-tauri/tests/fixtures/` are copied from `../anki-apkg-parser/test/decks/`.
+
+The app icon is `src-tauri/app-icon.svg`; `npx tauri icon src-tauri/app-icon.svg` regenerates `src-tauri/icons/` from it.
