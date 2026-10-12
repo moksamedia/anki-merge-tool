@@ -50,9 +50,12 @@ const valueOf = (f) => resolution.value.values[f.name] ?? ''
 const taken = (f) => takenSides(f, valueOf(f))
 const SIDE_LABEL = { lib: 'library', pkg: 'package' }
 
-/** Take or drop one side; asks before replacing a result edited by hand. */
-async function take(f, side, event) {
-  const next = valueForSides(f, { ...taken(f), [side]: event.target.checked })
+/** A side can be taken when it has content and the field isn't identical on both sides. */
+const canTake = (f, side) => f.status !== 'same' && !!f[side]
+
+/** Take or drop one side; asks before replacing a result edited by hand. `box` is the checkbox, if one was used. */
+async function take(f, side, checked, box = null) {
+  const next = valueForSides(f, { ...taken(f), [side]: checked })
   const ok =
     !isManualEdit(f, valueOf(f)) ||
     (await confirm(`You've edited the result for "${f.name}" by hand. Replace your edits?`, {
@@ -63,7 +66,14 @@ async function take(f, side, event) {
     }))
   if (ok) resolution.value.values[f.name] = next
   // Re-sync the box with the value: unchanged on cancel, or a no-op toggle.
-  event.target.checked = taken(f)[side]
+  if (box) box.checked = taken(f)[side]
+}
+
+/** Double-clicking a Library/Package cell toggles its checkbox; not from the box itself or a player. */
+function onSideDblclick(f, side, e) {
+  if (!canTake(f, side) || e.target.closest('input, button, audio, a')) return
+  window.getSelection()?.removeAllRanges()
+  take(f, side, !taken(f)[side])
 }
 
 function decide(status) {
@@ -131,15 +141,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             <small v-if="f.pkgName && f.pkgName !== f.name">← {{ f.pkgName }}</small>
             <small>{{ STATUS_LABEL[f.status] }}</small>
           </th>
-          <td class="side">
+          <td class="side" @dblclick="onSideDblclick(f, 'lib', $event)">
             <input
-              v-if="f.lib && f.status !== 'same'"
+              v-if="canTake(f, 'lib')"
               type="checkbox"
               class="take"
               :checked="taken(f).lib"
               :title="`Use the ${SIDE_LABEL.lib} value`"
               :aria-label="`Use the library value for ${f.name}`"
-              @change="take(f, 'lib', $event)"
+              @change="take(f, 'lib', $event.target.checked, $event.target)"
             />
             <FieldPreview v-if="rendered" :html="f.lib" source="lib" />
             <template v-else>
@@ -147,15 +157,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
               <MediaStrip :html="f.lib" source="lib" />
             </template>
           </td>
-          <td class="side">
+          <td class="side" @dblclick="onSideDblclick(f, 'pkg', $event)">
             <input
-              v-if="f.pkg && f.status !== 'same'"
+              v-if="canTake(f, 'pkg')"
               type="checkbox"
               class="take"
               :checked="taken(f).pkg"
               :title="`Use the ${SIDE_LABEL.pkg} value`"
               :aria-label="`Use the package value for ${f.name}`"
-              @change="take(f, 'pkg', $event)"
+              @change="take(f, 'pkg', $event.target.checked, $event.target)"
             />
             <FieldPreview v-if="rendered" :html="f.pkg" source="pkg" />
             <template v-else>
