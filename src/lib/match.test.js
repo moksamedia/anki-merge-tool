@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { analyze, compareFields, initialResolution, matchKey, mediaReferences, selectMatches, toRecord } from './match.js'
+import { analyze, compareFields, initialResolution, libraryFingerprint, matchKey, mediaReferences, selectMatches, toRecord } from './match.js'
 
 const notetype = { id: 1, name: 'Tibetan Vocab', fields: ['Tibetan', 'English', 'Notes'], templates: [] }
 
@@ -173,6 +173,33 @@ describe('compareFields', () => {
   it('reports package fields the library model lacks', () => {
     const { dropped } = compareFields({ Tibetan: 'ཀ', Audio: '[sound:ka.mp3]' }, libNote(1, ['ཀ', '', '']))
     expect(dropped).toEqual(['Audio'])
+  })
+})
+
+describe('field names', () => {
+  it('matches package and library field names case-insensitively', () => {
+    const lib = libNote(1, ['ཀ', 'ka', ''], [], 'Tibetan Vocab', ['tibetan', 'ENGLISH', 'Notes'])
+    const [r] = run([pkgNote('g', ['ཀ', 'kaa', 'n'])], [lib])
+    expect(r.kind).toBe('conflict')
+    expect(r.fields.map((f) => [f.name, f.status])).toEqual([
+      ['tibetan', 'same'],
+      ['ENGLISH', 'conflict'],
+      ['Notes', 'fill'],
+    ])
+    expect(r.dropped).toEqual([])
+  })
+})
+
+describe('libraryFingerprint', () => {
+  it('changes when the library note is edited or a different note matches', () => {
+    const pkg = [pkgNote('g', ['ཀ', 'kaa', ''])]
+    const [a] = run(pkg, [libNote(1, ['ཀ', 'ka', ''])])
+    const [edited] = run(pkg, [libNote(1, ['ཀ', 'ka', 'now has a note'])])
+    const [other] = run(pkg, [libNote(2, ['ཀ', 'ka', ''])])
+    expect(libraryFingerprint(a)).toBe(libraryFingerprint(run(pkg, [libNote(1, ['ཀ', 'ka', ''])])[0]))
+    expect(libraryFingerprint(a)).not.toBe(libraryFingerprint(edited))
+    expect(libraryFingerprint(a)).not.toBe(libraryFingerprint(other))
+    expect(initialResolution(a).lib).toBe(libraryFingerprint(a))
   })
 })
 

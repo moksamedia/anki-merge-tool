@@ -38,6 +38,13 @@ export function namedFields(note, notetype) {
   return Object.fromEntries(notetype.fields.map((name, i) => [name, note.fields[i] ?? '']))
 }
 
+/** The package field matching a library field name: exact, else case-insensitive ("tibetan" ↔ "Tibetan"). */
+export function lookupField(pkgFields, name) {
+  if (name in pkgFields) return name
+  const lower = name.toLowerCase()
+  return Object.keys(pkgFields).find((k) => k.toLowerCase() === lower)
+}
+
 /** The configured main field as spelled in this field list (case-insensitive), or undefined. */
 export function findMainField(fieldNames, preferred) {
   const lower = preferred?.trim().toLowerCase()
@@ -136,18 +143,19 @@ export function selectMatches({ pkg, guidMap, records, mapping, settings }) {
  */
 export function compareFields(pkgFields, libNote, { autoFillEmpty = true } = {}) {
   const fields = []
+  const used = new Set()
   for (const name of libNote.fieldOrder) {
     const lib = libNote.fields[name] ?? ''
-    const pkg = pkgFields[name]
+    const pkgName = lookupField(pkgFields, name)
+    if (pkgName) used.add(pkgName)
+    const pkg = pkgName ? pkgFields[pkgName] : undefined
     let status = 'same'
     if (pkg !== undefined && !isEmpty(pkg) && normalizeValue(pkg) !== normalizeValue(lib)) {
       status = isEmpty(lib) && autoFillEmpty ? 'fill' : 'conflict'
     }
     fields.push({ name, lib, pkg: pkg ?? '', status })
   }
-  const dropped = Object.keys(pkgFields).filter(
-    (name) => !(name in libNote.fields) && !isEmpty(pkgFields[name]),
-  )
+  const dropped = Object.keys(pkgFields).filter((name) => !used.has(name) && !isEmpty(pkgFields[name]))
   return { fields, dropped }
 }
 
@@ -217,10 +225,20 @@ export function analyze({ pkg, matches, libNotes, mapping, settings }) {
   return entries
 }
 
+/**
+ * Identifies the library side a resolution was made against. A saved decision
+ * is only reused while this is unchanged, so editing the note in Anki (or a
+ * different note matching next time) invalidates it.
+ */
+export function libraryFingerprint(entry) {
+  return [entry.libNote.id, ...entry.fields.map((f) => f.lib)].join('\u0000')
+}
+
 /** Starting merged values: library for same/conflict fields, package for fills. */
 export function initialResolution(entry) {
   return {
     status: 'pending',
+    lib: libraryFingerprint(entry),
     values: Object.fromEntries(
       entry.fields.map((f) => [f.name, f.status === 'fill' ? f.pkg : f.lib]),
     ),

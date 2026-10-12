@@ -60,11 +60,15 @@ const failures = computed(() => {
       <p class="muted small">Close Anki's Browse window first — AnkiConnect can't update a note that's open in it.</p>
       <button
         class="primary"
-        :disabled="state.busy || nothingToDo || state.applied || plan.collisions.length > 0"
+        :disabled="state.busy || nothingToDo || state.attempted || plan.collisions.length > 0"
         @click="applyMerge"
       >
-        {{ state.busy ? state.progress : state.applied ? 'Applied' : 'Back up & merge' }}
+        {{ state.busy ? state.progress : state.applied ? 'Applied' : state.attempted ? 'Stopped' : 'Back up & merge' }}
       </button>
+      <p v-if="state.attempted && !state.busy && !state.applied" class="warn-text small">
+        This merge stopped part-way. Some notes may already be written, so re-run <b>Analyze</b> in Configure before
+        merging again — it will see what landed and only propose the rest.
+      </p>
     </div>
 
     <div v-if="state.report" class="card">

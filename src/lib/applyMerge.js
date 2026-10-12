@@ -1,4 +1,4 @@
-import { mediaReferences, normalizeValue } from './match.js'
+import { lookupField, mediaReferences, normalizeValue } from './match.js'
 
 const MULTI_CHUNK = 50
 const MEDIA_CHUNK = 20
@@ -48,9 +48,11 @@ export function buildPlan({ pkg, entries, resolutions, excluded, libModelFields,
     if (entry.kind === 'new') {
       const { modelName, create } = entry.target
       const allowed = create ? entry.notetype.fields : libModelFields[modelName] ?? []
-      const fields = Object.fromEntries(
-        Object.entries(entry.pkgFields).filter(([name]) => allowed.includes(name)),
-      )
+      const fields = {}
+      for (const name of allowed) {
+        const pkgName = lookupField(entry.pkgFields, name)
+        if (pkgName) fields[name] = entry.pkgFields[pkgName]
+      }
       if (create) modelsUsed.set(modelName, entry.notetype)
       newNotes.push({ guid: entry.guid, deckName: targetDeck, modelName, fields, tags: entry.pkgNote.tags })
       continue

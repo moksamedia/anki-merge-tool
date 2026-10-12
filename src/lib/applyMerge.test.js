@@ -76,6 +76,19 @@ describe('buildPlan', () => {
     expect(p.media.sort()).toEqual(['_tibetan.ttf', 'a.jpg'])
   })
 
+  it('maps new-note fields onto the library model case-insensitively', () => {
+    const entry = {
+      kind: 'new',
+      guid: 'n2',
+      notetype,
+      target: { modelName: 'Vocab', create: false },
+      pkgFields: { Front: 'f', Back: 'b' },
+      pkgNote: { tags: [] },
+    }
+    const p = buildPlan({ pkg, entries: [entry], resolutions: {}, excluded: new Set(), libModelFields: { Vocab: ['front', 'BACK'] }, targetDeck: 'D' })
+    expect(p.newNotes[0].fields).toEqual({ front: 'f', BACK: 'b' })
+  })
+
   it('honours exclusions', () => {
     const p = buildPlan({ pkg, entries, resolutions, excluded: new Set(['n1', 'a1']), libModelFields: {}, targetDeck: 'D' })
     expect(p.newNotes).toHaveLength(0)

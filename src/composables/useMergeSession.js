@@ -2,7 +2,7 @@ import { computed, reactive, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { createAnkiClient } from '../lib/ankiClient.js'
-import { analyze, initialResolution, selectMatches } from '../lib/match.js'
+import { analyze, initialResolution, libraryFingerprint, selectMatches } from '../lib/match.js'
 import { buildPlan, createReport, executePlan } from '../lib/applyMerge.js'
 
 const DEFAULT_SETTINGS = {
@@ -56,6 +56,9 @@ const state = reactive({
   applyLog: [],
   report: null,
   applied: false,
+  // Set on any apply attempt. A failed attempt may have written some notes, so
+  // re-applying the same plan would duplicate them; analysis must be re-run.
+  attempted: false,
 })
 
 watch(
@@ -92,6 +95,18 @@ async function checkConnection() {
         ? { ok: true, detail: 'Collection loaded' }
         : { ok: false, detail: 'Bridge is running but no collection is loaded' }
       : { ok: false, detail: String(bridge.reason) }
+  // An older bridge answers /health but lacks the routes this app needs.
+  if (state.connection.bridge.ok) {
+    try {
+      await client.notesByGuid([])
+      await client.fieldValues('')
+    } catch {
+      state.connection.bridge = {
+        ok: false,
+        detail: 'Bridge is outdated — update anki-ai-bridge and restart Anki (needs /backup, /notes/by-guid, /notes/field-values)',
+      }
+    }
+  }
   state.connection.checking = false
 }
 
@@ -124,6 +139,7 @@ async function openPackage() {
     state.excluded = new Set()
     state.report = null
     state.applied = false
+    state.attempted = false
     await loadModelFields()
   })
 }
@@ -163,22 +179,31 @@ async function runAnalysis() {
     )
     state.entries = entries
     state.excluded = new Set()
+    state.applied = false
+    state.attempted = false
   })
 }
 
-/** Reuse a saved decision only if it still covers exactly this entry's fields. */
+/** Reuse a saved decision only if the library note it was made against is unchanged. */
 function savedResolution(saved, entry) {
   const names = entry.fields.map((f) => f.name).sort().join('\u0000')
-  if (saved?.values && Object.keys(saved.values).sort().join('\u0000') === names) return saved
+  if (
+    saved?.values &&
+    saved.lib === libraryFingerprint(entry) &&
+    Object.keys(saved.values).sort().join('\u0000') === names
+  ) {
+    return saved
+  }
   return initialResolution(entry)
 }
 
 const counts = computed(() => {
-  const c = { new: 0, identical: 0, auto: 0, conflict: 0, ambiguous: 0, shared: 0 }
+  const c = { new: 0, identical: 0, auto: 0, conflict: 0, ambiguous: 0, shared: 0, dropped: 0 }
   for (const e of state.entries) {
     c[e.kind]++
     if (e.ambiguous) c.ambiguous++
     if (e.sharedWith?.length) c.shared++
+    if (e.dropped?.length) c.dropped++
   }
   return c
 })
@@ -199,6 +224,7 @@ const plan = computed(() =>
 async function applyMerge() {
   state.applyLog = []
   state.report = createReport()
+  state.attempted = true
   await run(async () => {
     await executePlan(client, plan.value, {
       report: state.report,

@@ -48,6 +48,10 @@ const move = (delta) => {
     <p v-if="counts.ambiguous" class="warn-text small">
       {{ counts.ambiguous }} note(s) matched more than one library note by main field; the first match is used.
     </p>
+    <p v-if="counts.dropped" class="warn-text small">
+      {{ counts.dropped }} matched note(s) have package content in fields their library note type lacks; that content is
+      not merged (each note's merge view lists the fields).
+    </p>
 
     <div v-if="tab === 'conflict'">
       <p v-if="!conflicts.length" class="muted">No conflicts.</p>
