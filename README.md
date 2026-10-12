@@ -19,12 +19,12 @@ No CORS setup is needed, because all HTTP calls go through the Rust side.
 ## Flow
 
 1. **Connect:** checks both services.
-2. **Package:** pick an `.apkg` file. All formats are supported: `anki21b` (zstd + protobuf media map), `anki21` and `anki2`.
+2. **Package:** pick an `.apkg` file, or reopen one of the last five from **Recent**. All formats are supported: `anki21b` (zstd + protobuf media map), `anki21` and `anki2`.
 3. **Configure:**
    - The main field (default `Tibetan`).
    - A merge tag (default `merge_<date>_<time>`) added to every note the merge writes — new notes and notes whose fields or tags change — so one `tag:` search in Anki finds the whole run. Blank disables it.
    - Where new notes go: each note's own package deck (the default when the package has several decks; missing decks are created, parents included), or one target deck for all of them.
-   - Which library note type each package note type maps to: an existing one (fields matched by name) or a newly created one. When the two don't line up, the row shows which package fields won't be imported. **Configure fields**, below the table, opens an optional field map for those note types, described under Review, with rows colored green for same name, yellow for a different name and red for no match.
+   - Which library note type each package note type maps to: an existing one (fields matched by name) or a newly created one. Both this choice and field maps are remembered app-wide by note type names, so the next package with the same note types starts where you left off. When the two don't line up, the row shows which package fields won't be imported. **Configure fields**, below the table, opens an optional field map for those note types, described under Review, with rows colored green for same name, yellow for a different name and red for no match.
 4. **Analyze and review:**
    - Each package note is matched by GUID first, then by main field across the **whole library**: any deck, any note type that has the main field (a candidate in the mapped note type is preferred). Tick **Ignore GUIDs** to match on the main field only.
    - A package note type without the main field falls back to its first field, matched only within the library note type it maps to.

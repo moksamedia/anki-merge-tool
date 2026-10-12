@@ -3,17 +3,20 @@ import { computed } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
 
 const emit = defineEmits(['done'])
-const { state, openPackage } = useMergeSession()
+const { state, openPackage, forgetRecent } = useMergeSession()
 
-const fileName = computed(() => state.pkgPath?.split(/[\\/]/).pop())
+const baseName = (path) => path.split(/[\\/]/).pop()
+const dirName = (path) => path.slice(0, path.length - baseName(path).length - 1)
+const fileName = computed(() => state.pkgPath && baseName(state.pkgPath))
 const notesPerType = computed(() => {
   const counts = new Map()
   for (const n of state.pkg?.notes ?? []) counts.set(n.notetypeId, (counts.get(n.notetypeId) ?? 0) + 1)
   return counts
 })
 
-async function choose() {
-  await openPackage()
+/** Open a recent package by path, or (no path) pick one in the file dialog. */
+async function choose(path) {
+  await openPackage(path)
   if (state.pkg && !state.error) emit('done')
 }
 </script>
@@ -21,7 +24,21 @@ async function choose() {
 <template>
   <section>
     <h2>Open a package</h2>
-    <button class="primary" :disabled="state.busy" @click="choose">Choose .apkg file…</button>
+    <button class="primary" :disabled="state.busy" @click="choose()">Choose .apkg file…</button>
+
+    <div v-if="state.recentPackages.length" class="recent">
+      <h3>Recent</h3>
+      <ul>
+        <li v-for="path in state.recentPackages" :key="path">
+          <button class="link" :disabled="state.busy" :title="path" @click="choose(path)">{{ baseName(path) }}</button>
+          <span class="muted small">{{ dirName(path) }}</span>
+          <span v-if="path === state.pkgPath" class="badge">open</span>
+          <button class="link small forget" :title="`Remove ${baseName(path)} from recent`" @click="forgetRecent(path)">
+            ×
+          </button>
+        </li>
+      </ul>
+    </div>
 
     <div v-if="state.pkg" class="card">
       <h3>{{ fileName }}</h3>

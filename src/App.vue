@@ -198,6 +198,13 @@ footer.row { margin-top: 12px; }
 .map-foot { margin-top: 6px; }
 .map-foot button { margin-left: auto; }
 button.fields-toggle { margin-top: 10px; }
+
+.recent { margin: 16px 0; }
+.recent h3 { font-size: 13px; color: var(--muted); font-weight: 600; }
+.recent ul { list-style: none; margin: 0; padding: 0; }
+.recent li { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.recent li .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent .forget { color: var(--muted); }
 .pair + .pair { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 14px; }
 table.map td:first-child { width: 28%; font-weight: 600; }
 table.map td:nth-child(2) { width: 36%; white-space: nowrap; }

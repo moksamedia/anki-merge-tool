@@ -15,11 +15,13 @@ const DEFAULT_SETTINGS = {
 }
 
 function load(key, fallback) {
+  const copy = (v) => (Array.isArray(fallback) ? [...v] : { ...fallback, ...v })
   try {
     const raw = localStorage.getItem(key)
-    return raw ? { ...fallback, ...JSON.parse(raw) } : { ...fallback }
+    const parsed = raw ? JSON.parse(raw) : fallback
+    return Array.isArray(fallback) === Array.isArray(parsed) ? copy(parsed) : copy(fallback)
   } catch {
-    return { ...fallback }
+    return copy(fallback)
   }
 }
 
@@ -39,11 +41,17 @@ watch(settings, () => save('settings', settings), { deep: true })
 
 const client = createAnkiClient(settings)
 
-// Field maps the user chose, remembered across packages by note type names.
+// Choices remembered app-wide, across packages and sessions, by note type names:
+// field maps per (package type, library type), and each package type's target.
 const savedFieldMaps = load('fieldMaps', {})
+const savedTargets = load('noteTypeTargets', {})
+
+const RECENT_LIMIT = 5
 
 const state = reactive({
   connection: { anki: null, bridge: null, checking: false },
+  // Most recently opened package paths, newest first.
+  recentPackages: load('recentPackages', []),
   pkgPath: null,
   pkg: null,
   libModels: [],
@@ -139,8 +147,9 @@ function dominantDeck(pkg) {
   return pkg.decks.find((d) => d.id === deckId)?.name ?? 'Default'
 }
 
-async function openPackage() {
-  const path = await open({ multiple: false, filters: [{ name: 'Anki package', extensions: ['apkg'] }] })
+/** Open a package: `path` reopens a known file, otherwise a file dialog asks for one. */
+async function openPackage(path = null) {
+  path ??= await open({ multiple: false, filters: [{ name: 'Anki package', extensions: ['apkg'] }] })
   if (!path) return
   await run(async () => {
     state.progress = 'Reading package…'
@@ -154,9 +163,8 @@ async function openPackage() {
     state.targetDeck = dominantDeck(pkg)
     state.deckMode = noteDeckCount(pkg) > 1 ? 'package' : 'single'
     state.mergeTag = defaultMergeTag()
-    state.mapping = Object.fromEntries(
-      pkg.notetypes.map((nt) => [nt.id, { modelName: nt.name, create: !models.includes(nt.name) }]),
-    )
+    state.mapping = Object.fromEntries(pkg.notetypes.map((nt) => [nt.id, initialTarget(nt, models)]))
+    rememberRecent(path)
     state.fieldMaps = {}
     state.matches = null
     state.libNotes = []
@@ -168,6 +176,36 @@ async function openPackage() {
     state.attempted = false
     await loadModelFields()
   })
+}
+
+/**
+ * The library note type a package type goes to: the remembered choice while
+ * that type still exists, else the same-named type, else a new one. A
+ * remembered "create" falls back to the default, so once a merge has created
+ * the type, later packages map onto it instead of creating another.
+ */
+function initialTarget(nt, models) {
+  const saved = savedTargets[nt.name]
+  if (saved && !saved.create && models.includes(saved.modelName)) return { modelName: saved.modelName, create: false }
+  return { modelName: nt.name, create: !models.includes(nt.name) }
+}
+
+/** Set a package type's target library note type, and remember it by name. */
+async function setNoteTypeTarget(nt, target) {
+  state.mapping[nt.id] = target
+  savedTargets[nt.name] = { modelName: target.modelName, create: target.create }
+  save('noteTypeTargets', savedTargets)
+  await loadModelFields()
+}
+
+function rememberRecent(path) {
+  state.recentPackages = [path, ...state.recentPackages.filter((p) => p !== path)].slice(0, RECENT_LIMIT)
+  save('recentPackages', state.recentPackages)
+}
+
+function forgetRecent(path) {
+  state.recentPackages = state.recentPackages.filter((p) => p !== path)
+  save('recentPackages', state.recentPackages)
 }
 
 async function loadModelFields() {
@@ -387,6 +425,8 @@ export function useMergeSession() {
     resetFieldMap,
     checkConnection,
     openPackage,
+    forgetRecent,
+    setNoteTypeTarget,
     loadModelFields,
     runAnalysis,
     applyMerge,

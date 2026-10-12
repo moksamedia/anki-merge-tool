@@ -7,7 +7,7 @@ import { sanitizeTag } from '../lib/applyMerge.js'
 import FieldMapTable from './FieldMapTable.vue'
 
 const emit = defineEmits(['done'])
-const { settings, state, fieldMapOf, loadModelFields, runAnalysis } = useMergeSession()
+const { settings, state, fieldMapOf, setNoteTypeTarget, runAnalysis } = useMergeSession()
 
 // Field mapping stays hidden by default: fields pair by name unless the user
 // opens it and chooses otherwise.
@@ -26,10 +26,11 @@ function targetValue(nt) {
   return m.create ? '__create__' : m.modelName
 }
 
-async function setTarget(nt, value) {
-  state.mapping[nt.id] =
-    value === '__create__' ? { modelName: createName(nt), create: true } : { modelName: value, create: false }
-  await loadModelFields()
+function setTarget(nt, value) {
+  return setNoteTypeTarget(
+    nt,
+    value === '__create__' ? { modelName: createName(nt), create: true } : { modelName: value, create: false },
+  )
 }
 
 /** A free name for a new note type: the package name, suffixed if taken. */
