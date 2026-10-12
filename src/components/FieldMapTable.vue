@@ -30,15 +30,28 @@ function example(lib) {
 
 <template>
   <table class="plain map">
-    <thead><tr><th>Library field</th><th>Filled from package field</th><th>Example</th></tr></thead>
+    <thead>
+      <tr>
+        <th>Package field <span class="map-arrow" aria-hidden="true">→</span></th>
+        <th>Library field</th>
+        <th>Example</th>
+      </tr>
+    </thead>
     <tbody>
       <tr v-for="lib in pair.libFields" :key="lib" :class="`map-${rowStatus(lib)}`">
-        <td>{{ lib }}</td>
         <td>
-          <select :value="mapOf()[lib]" :aria-label="`Package field for ${lib}`" @change="setFieldMap(pair, lib, $event.target.value)">
+          <select
+            :value="mapOf()[lib]"
+            :class="{ placeholder: !mapOf()[lib] }"
+            :aria-label="`Package field that fills ${lib}`"
+            @change="setFieldMap(pair, lib, $event.target.value)"
+          >
             <option value="">(nothing)</option>
             <option v-for="f in pair.notetype.fields" :key="f" :value="f">{{ f }}</option>
           </select>
+        </td>
+        <td>
+          <span class="lib-field">{{ lib }}</span>
           <span class="badge">{{ STATUS_TEXT[rowStatus(lib)] }}</span>
         </td>
         <td class="small">{{ example(lib) }}</td>

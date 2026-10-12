@@ -69,6 +69,8 @@ const steps = computed(() => [
   --conflict-bg: #fff6ea;
   --manual-bg: #fdf3c4;
   --manual: #9a7b00;
+  --field-border: #b8b8b2;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%236b6e76' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans Tibetan', sans-serif;
   font-size: 14px;
   color: var(--text);
@@ -92,6 +94,8 @@ const steps = computed(() => [
     --conflict-bg: #3a2d1a;
     --manual-bg: #3a3415;
     --manual: #e3c450;
+    --field-border: #55565d;
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%239a9ca3' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 }
 
@@ -116,6 +120,20 @@ input, select, textarea {
   font: inherit; color: var(--text); background: var(--bg);
   border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
 }
+
+/* Outlined dropdowns (Quasar/Vuetify style): custom chevron, hover and focus states. */
+select {
+  appearance: none; -webkit-appearance: none;
+  min-height: 34px; padding: 6px 34px 6px 12px;
+  border: 1px solid var(--field-border); border-radius: 4px;
+  background: var(--panel) var(--chevron) no-repeat right 10px center / 12px 12px;
+  cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s;
+}
+select:hover:not(:disabled) { border-color: var(--text); }
+select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+select:disabled { opacity: 0.5; cursor: default; }
+select.placeholder { color: var(--muted); }
+select option { color: var(--text); }
 label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 label.toggle { flex-direction: row; align-items: center; gap: 6px; }
 input.inline { margin-left: 6px; width: 200px; }
@@ -206,9 +224,13 @@ button.fields-toggle { margin-top: 10px; }
 .recent li .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent .forget { color: var(--muted); }
 .pair + .pair { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 14px; }
-table.map td:first-child { width: 28%; font-weight: 600; }
-table.map td:nth-child(2) { width: 36%; white-space: nowrap; }
-table.map select { min-width: 160px; }
+table.map th:first-child, table.map td:first-child { width: 34%; }
+table.map td:nth-child(2) { width: 32%; white-space: nowrap; }
+table.map td { vertical-align: middle; }
+table.map select { width: 100%; max-width: 280px; }
+table.map .lib-field { font-weight: 600; }
+table.map th:first-child { position: relative; }
+.map-arrow { position: absolute; right: 4px; color: var(--accent); font-weight: 700; }
 table.map tr td:first-child { border-left: 3px solid transparent; }
 table.map tr.map-same td { background: var(--ins-bg); }
 table.map tr.map-same td:first-child { border-left-color: var(--ok); }
