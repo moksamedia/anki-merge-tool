@@ -1,11 +1,17 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, reactive } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
-import { mainFieldName } from '../lib/match.js'
-import { sameNamedField } from '../lib/fieldMap.js'
+import { mainFieldName, namedFields } from '../lib/match.js'
+import { needsFieldMap, pairKey, unmappedFields } from '../lib/fieldMap.js'
+import FieldMapTable from './FieldMapTable.vue'
 
 const emit = defineEmits(['done'])
-const { settings, state, loadModelFields, runAnalysis } = useMergeSession()
+const { settings, state, fieldMapOf, loadModelFields, runAnalysis } = useMergeSession()
+
+// Note type ids whose field map is expanded. Collapsed by default: fields pair
+// by name unless the user opens a row and chooses otherwise.
+const expanded = reactive(new Set())
+const toggle = (nt) => (expanded.has(nt.id) ? expanded.delete(nt.id) : expanded.add(nt.id))
 
 // Only note types that actually have notes in the package need a target.
 const usedTypes = computed(() => {
@@ -33,12 +39,33 @@ function createName(nt) {
   return name
 }
 
-function fieldReport(nt) {
-  const m = state.mapping[nt.id]
-  if (m.create) return { missing: [], main: mainFieldName(nt.fields, settings.mainField) }
-  const lib = state.libModelFields[m.modelName] ?? []
-  return { missing: nt.fields.filter((f) => !sameNamedField(lib, f)), main: mainFieldName(lib, settings.mainField) }
-}
+// A few package notes per type, for the field map's example column.
+const samples = computed(() => {
+  const out = new Map()
+  for (const note of state.pkg.notes) {
+    const list = out.get(note.notetypeId) ?? []
+    if (list.length < 20) out.set(note.notetypeId, [...list, note])
+  }
+  const types = new Map(state.pkg.notetypes.map((nt) => [nt.id, nt]))
+  return new Map([...out].map(([id, notes]) => [id, notes.map((n) => namedFields(n, types.get(id)))]))
+})
+
+/** Per row: the field-map pair new notes go through (null when creating a type), and what it leaves out. */
+const rows = computed(() =>
+  usedTypes.value.map((nt) => {
+    const m = state.mapping[nt.id]
+    if (m.create) return { nt, pair: null, needsMap: false, unmapped: [], main: mainFieldName(nt.fields, settings.mainField) }
+    const libFields = state.libModelFields[m.modelName] ?? []
+    const pair = { key: pairKey(nt.id, m.modelName), notetype: nt, modelName: m.modelName, libFields, samples: samples.value.get(nt.id) ?? [] }
+    return {
+      nt,
+      pair,
+      needsMap: needsFieldMap(nt, m.modelName, libFields),
+      unmapped: unmappedFields(nt.fields, fieldMapOf(pair)),
+      main: mainFieldName(libFields, settings.mainField),
+    }
+  }),
+)
 
 const createNameTaken = (nt) => state.mapping[nt.id].create && state.libModels.includes(state.mapping[nt.id].modelName)
 
@@ -99,23 +126,31 @@ async function analyze() {
       <table class="plain">
         <thead><tr><th>Package note type</th><th>Library note type</th><th>Fields</th></tr></thead>
         <tbody>
-          <tr v-for="nt in usedTypes" :key="nt.id">
-            <td>{{ nt.name }}</td>
-            <td>
-              <select :value="targetValue(nt)" @change="setTarget(nt, $event.target.value)">
-                <option value="__create__">Create new note type</option>
-                <option v-for="m in state.libModels" :key="m" :value="m">{{ m }}</option>
-              </select>
-              <input v-if="state.mapping[nt.id].create" v-model.trim="state.mapping[nt.id].modelName" class="inline" />
-              <span v-if="createNameTaken(nt)" class="warn-text small">name already exists</span>
-            </td>
-            <td class="small">
-              <span>matching on <b>{{ fieldReport(nt).main }}</b></span>
-              <span v-if="fieldReport(nt).missing.length" class="warn-text">
-                · no same-named library field: {{ fieldReport(nt).missing.join(', ') }} (can be mapped in Review)
-              </span>
-            </td>
-          </tr>
+          <template v-for="{ nt, pair, needsMap, unmapped, main } in rows" :key="nt.id">
+            <tr>
+              <td>{{ nt.name }}</td>
+              <td>
+                <select :value="targetValue(nt)" @change="setTarget(nt, $event.target.value)">
+                  <option value="__create__">Create new note type</option>
+                  <option v-for="m in state.libModels" :key="m" :value="m">{{ m }}</option>
+                </select>
+                <input v-if="state.mapping[nt.id].create" v-model.trim="state.mapping[nt.id].modelName" class="inline" />
+                <span v-if="createNameTaken(nt)" class="warn-text small">name already exists</span>
+              </td>
+              <td class="small">
+                <span>matching on <b>{{ main }}</b></span>
+                <span v-if="unmapped.length" class="warn-text"> · not imported: {{ unmapped.join(', ') }}</span>
+                <div v-if="needsMap">
+                  <button class="link small" :aria-expanded="expanded.has(nt.id)" @click="toggle(nt)">
+                    {{ expanded.has(nt.id) ? 'Hide field map ▾' : 'Map fields ▸' }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="needsMap && expanded.has(nt.id)">
+              <td colspan="3" class="map-cell"><FieldMapTable :pair="pair" /></td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>

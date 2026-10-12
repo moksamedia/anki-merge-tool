@@ -234,9 +234,20 @@ function classify(previous) {
   state.entries = entries
 }
 
-/** Point a library field at a package field ('' for none) and re-classify. */
+/**
+ * The map in effect for a pair: the session's, else the remembered one, else by
+ * name. Doesn't write state, so templates can call it before analysis (Configure).
+ */
+function fieldMapOf(pair) {
+  return (
+    state.fieldMaps[pair.key] ??
+    reconcileFieldMap(savedFieldMaps[savedPairKey(pair.notetype.name, pair.modelName)], pair.notetype.fields, pair.libFields)
+  )
+}
+
+/** Point a library field at a package field ('' for none), remember it, and re-classify. */
 function setFieldMap(pair, libField, pkgField) {
-  state.fieldMaps[pair.key][libField] = pkgField
+  state.fieldMaps[pair.key] = { ...fieldMapOf(pair), [libField]: pkgField }
   rememberFieldMap(pair)
 }
 
@@ -248,13 +259,14 @@ function resetFieldMap(pair) {
 function rememberFieldMap(pair) {
   savedFieldMaps[savedPairKey(pair.notetype.name, pair.modelName)] = { ...state.fieldMaps[pair.key] }
   save('fieldMaps', savedFieldMaps)
+  // Before analysis (mapping from Configure) there is nothing to re-classify.
   // Decisions whose package side changed are reset by the fingerprint check.
-  classify(state.resolutions)
+  if (state.matches) classify(state.resolutions)
 }
 
 /**
  * Pairs whose note types don't line up (different names, or fields the
- * same-name default leaves unpaired) — the ones the Fields step shows.
+ * same-name default leaves unpaired) — the ones Review's Field mapping panel lists.
  */
 const fieldPairs = computed(() => {
   const pairs = new Map()
@@ -354,6 +366,7 @@ export function useMergeSession() {
     counts,
     plan,
     fieldPairs,
+    fieldMapOf,
     setFieldMap,
     resetFieldMap,
     checkConnection,

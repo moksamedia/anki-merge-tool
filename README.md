@@ -23,7 +23,7 @@ No CORS setup is needed, because all HTTP calls go through the Rust side.
 3. **Configure:**
    - The main field (default `Tibetan`).
    - The target deck for new notes.
-   - Which library note type each package note type maps to: an existing one (fields matched by name) or a newly created one.
+   - Which library note type each package note type maps to: an existing one (fields matched by name) or a newly created one. When the two don't line up, the row shows which package fields won't be imported and offers **Map fields ▸**. That opens an optional field map, described under Review, with rows colored green for same name, yellow for a different name and red for no match.
 4. **Analyze and review:**
    - Each package note is matched by GUID first, then by main field across the **whole library**: any deck, any note type that has the main field (a candidate in the mapped note type is preferred). Tick **Ignore GUIDs** to match on the main field only.
    - A package note type without the main field falls back to its first field, matched only within the library note type it maps to.
@@ -33,7 +33,7 @@ No CORS setup is needed, because all HTTP calls go through the Rust side.
    - **Identical:** nothing to do.
    - **Auto:** only fills empty library fields and/or adds tags.
    - **Conflict:** opens the side-by-side merge, with Library | Package | Result per field, word diffs and a rendered preview. Pick a side per field, combine both, or edit the result. Keys: `A` accept, `S` skip, `J`/`K` move between notes, `R` toggle rendered.
-   - **Field mapping** (optional, collapsed): fields pair by name (case-insensitively) unless you say otherwise. When a package note type meets a library note type that doesn't line up with it — matched notes in a differently named type, or a target type with fields the other side lacks — Review shows a collapsed **Field mapping** panel listing each pair. Open it to pick which package field fills each library field, or nothing. One package field can fill several library fields. Choices are remembered by note type names for later packages. A change re-classifies at once, with no trip to Anki, and resets any review decision whose package side changed.
+   - **Field mapping** (optional, collapsed): fields pair by name (case-insensitively) unless you say otherwise. When a package note type meets a library note type that doesn't line up with it — matched notes in a differently named type, or a target type with fields the other side lacks — Review shows a collapsed **Field mapping** panel listing each pair. It includes library types reached only through library-wide matching, which Configure can't know about before analysis. Open it to pick which package field fills each library field, or nothing. One package field can fill several library fields. Choices are remembered by note type names for later packages. A change re-classifies at once, with no trip to Anki, and resets any review decision whose package side changed.
    - Review decisions are saved per package file, so a long review can be resumed.
 5. **Apply:**
    - Runs the backup first and stops if it fails.
