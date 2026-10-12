@@ -61,3 +61,19 @@ export function needsFieldMap(notetype, modelName, libFieldNames) {
   const map = defaultFieldMap(notetype.fields, libFieldNames)
   return Object.values(map).includes('') || unmappedFields(notetype.fields, map).length > 0
 }
+
+/**
+ * Library notes as they'll look once scheduled new fields exist: each new field
+ * appended, empty. `newFields` is {modelName: [fieldName]}.
+ */
+export function withNewFields(libNotes, newFields) {
+  return libNotes.map((note) => {
+    const added = (newFields[note.modelName] ?? []).filter((f) => !note.fieldOrder.includes(f))
+    if (!added.length) return note
+    return {
+      ...note,
+      fieldOrder: [...note.fieldOrder, ...added],
+      fields: { ...note.fields, ...Object.fromEntries(added.map((f) => [f, ''])) },
+    }
+  })
+}

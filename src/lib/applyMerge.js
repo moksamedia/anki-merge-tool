@@ -39,7 +39,7 @@ function desiredValues(entry, resolutions) {
  *                     package (created if missing); 'single': all go to targetDeck
  * @param mergeTag     tag added to every note the merge writes ('' for none)
  */
-export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'single', targetDeck, mergeTag = '' }) {
+export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'single', targetDeck, mergeTag = '', newFields = {} }) {
   const newNotes = []
   const tag = sanitizeTag(mergeTag)
   const pkgDeckNames = new Map((pkg.decks ?? []).map((d) => [d.id, d.name]))
@@ -68,7 +68,7 @@ export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'sin
     if (!desired) continue
 
     const id = entry.libNote.id
-    if (!targets.has(id)) targets.set(id, { id, guids: [], want: {}, lib: {}, tags: new Map() })
+    if (!targets.has(id)) targets.set(id, { id, modelName: entry.libNote.modelName, guids: [], want: {}, lib: {}, tags: new Map() })
     const target = targets.get(id)
     target.guids.push(entry.guid)
     for (const f of entry.fields) target.lib[f.name] = f.lib
@@ -95,7 +95,7 @@ export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'sin
         .map(([name, w]) => [name, w.value]),
     )
     const changed = Object.keys(fields).length > 0
-    if (changed) updates.push({ guids: t.guids, id: t.id, fields })
+    if (changed) updates.push({ guids: t.guids, id: t.id, modelName: t.modelName, fields })
     // Only notes the merge actually touches get the merge tag.
     if (tag && (changed || t.tags.size)) t.tags.set(tag.toLowerCase(), tag)
     if (t.tags.size) tagAdds.push({ guids: t.guids, id: t.id, tags: [...t.tags.values()] })
@@ -109,6 +109,12 @@ export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'sin
     cardTemplates: nt.templates.map((t) => ({ Name: t.name, Front: t.qfmt, Back: t.afmt })),
   }))
 
+  // Scheduled library fields are created only if something is written into them.
+  const written = new Set([...newNotes, ...updates].flatMap((n) => Object.keys(n.fields).map((f) => `${n.modelName}\u0000${f}`)))
+  const fieldsToCreate = Object.entries(newFields).flatMap(([modelName, names]) =>
+    names.filter((fieldName) => written.has(`${modelName}\u0000${fieldName}`)).map((fieldName) => ({ modelName, fieldName })),
+  )
+
   // Only copy media that the written content actually references. Files starting
   // with "_" are notetype assets (fonts, scripts) referenced from templates/CSS.
   const available = new Set(pkg.media)
@@ -120,7 +126,7 @@ export function buildPlan({ pkg, entries, resolutions, excluded, deckMode = 'sin
   for (const name of pkg.media) if (name.startsWith('_') && modelText.includes(name)) media.add(name)
 
   const decks = [...new Set(newNotes.map((n) => n.deckName))].sort()
-  return { deckMode, targetDeck, decks, mergeTag: tag, modelsToCreate, media: [...media], newNotes, updates, tagAdds, collisions: [...collisions.values()] }
+  return { deckMode, targetDeck, decks, mergeTag: tag, modelsToCreate, fieldsToCreate, media: [...media], newNotes, updates, tagAdds, collisions: [...collisions.values()] }
 }
 
 /** Anki tags can't contain spaces; a merge tag typed with spaces is joined with underscores. */
@@ -162,6 +168,7 @@ export function createReport() {
   return {
     backup: null,
     modelsCreated: [],
+    fieldsCreated: [],
     media: { stored: 0, renamed: {}, failed: [] },
     added: { ok: 0, failed: [] },
     updated: { ok: 0, failed: [] },
@@ -202,6 +209,18 @@ export async function executePlan(client, plan, { readMedia, onProgress = () => 
     onProgress(`Creating note type "${model.modelName}"…`)
     await client.call('createModel', model)
     report.modelsCreated.push(model.modelName)
+  }
+
+  // Before any note is written, since added and updated notes may fill these.
+  // A failure stops the merge: notes aimed at a missing field would fail anyway.
+  for (const field of plan.fieldsToCreate ?? []) {
+    onProgress(`Adding field "${field.fieldName}" to "${field.modelName}"…`)
+    try {
+      await client.call('modelFieldAdd', { modelName: field.modelName, fieldName: field.fieldName })
+    } catch (e) {
+      throw new Error(`Couldn't add field "${field.fieldName}" to "${field.modelName}" — nothing else was written. ${e}`, { cause: e })
+    }
+    report.fieldsCreated.push(field)
   }
 
   const renames = report.media.renamed

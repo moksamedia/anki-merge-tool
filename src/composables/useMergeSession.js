@@ -4,7 +4,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { createAnkiClient } from '../lib/ankiClient.js'
 import { analyze, initialResolution, libraryFingerprint, selectMatches } from '../lib/match.js'
 import { buildPlan, createReport, defaultMergeTag, executePlan } from '../lib/applyMerge.js'
-import { defaultFieldMap, needsFieldMap, pairKey, reconcileFieldMap, savedPairKey } from '../lib/fieldMap.js'
+import { defaultFieldMap, needsFieldMap, pairKey, reconcileFieldMap, savedPairKey, withNewFields } from '../lib/fieldMap.js'
 
 const DEFAULT_SETTINGS = {
   ankiConnectUrl: 'http://127.0.0.1:8765',
@@ -60,6 +60,8 @@ const state = reactive({
   mapping: {},
   // {pairKey: {libraryField: packageField | ''}} per (package type, library type) pair.
   fieldMaps: {},
+  // {modelName: [fieldName]}: library fields to add, created by Apply after the backup.
+  newFields: {},
   // 'package' keeps each new note in its package deck; 'single' sends all to targetDeck.
   deckMode: 'single',
   targetDeck: '',
@@ -166,6 +168,7 @@ async function openPackage(path = null) {
     state.mapping = Object.fromEntries(pkg.notetypes.map((nt) => [nt.id, initialTarget(nt, models)]))
     rememberRecent(path)
     state.fieldMaps = {}
+    state.newFields = {}
     state.matches = null
     state.libNotes = []
     state.entries = []
@@ -239,7 +242,6 @@ async function runAnalysis() {
 
     state.matches = markRaw(matches)
     state.libNotes = markRaw(libNotes)
-    state.fieldMaps = initialFieldMaps()
     classify(load(reviewKey(state.pkgPath), {}))
     state.excluded = new Set()
     state.applied = false
@@ -263,22 +265,29 @@ function initialFieldMaps() {
     const modelName = libNote?.modelName ?? (target.create ? null : target.modelName)
     const key = modelName && pairKey(nt.id, modelName)
     if (!key || maps[key]) continue
-    const saved = savedFieldMaps[savedPairKey(nt.name, modelName)]
-    maps[key] = reconcileFieldMap(saved, nt.fields, state.libModelFields[modelName] ?? [])
+    maps[key] = fieldMapOf({ key, notetype: nt, modelName, libFields: libFieldsOf(modelName) })
   }
   return maps
 }
 
+/** A library note type's fields, including ones scheduled to be added. */
+function libFieldsOf(modelName) {
+  const existing = state.libModelFields[modelName] ?? []
+  return [...existing, ...(state.newFields[modelName] ?? []).filter((f) => !existing.includes(f))]
+}
+
 /** Phase 2: classify against the kept matches, reusing still-valid decisions from `previous`. */
 function classify(previous) {
+  // Re-derive maps so every pair covers scheduled new fields too.
+  state.fieldMaps = initialFieldMaps()
   const entries = analyze({
     pkg: state.pkg,
     matches: state.matches,
-    libNotes: state.libNotes,
+    libNotes: withNewFields(state.libNotes, state.newFields),
     mapping: state.mapping,
     settings,
     fieldMaps: state.fieldMaps,
-    libModelFields: state.libModelFields,
+    libModelFields: Object.fromEntries(Object.keys(state.libModelFields).map((m) => [m, libFieldsOf(m)])),
   })
   state.resolutions = Object.fromEntries(
     entries.filter((e) => e.kind === 'conflict').map((e) => [e.guid, savedResolution(previous[e.guid], e)]),
@@ -288,18 +297,36 @@ function classify(previous) {
 
 /**
  * The map in effect for a pair: the session's, else the remembered one, else by
- * name. Doesn't write state, so templates can call it before analysis (Configure).
+ * name, made to cover the pair's current library fields. Doesn't write state,
+ * so templates can call it before analysis (Configure).
  */
 function fieldMapOf(pair) {
-  return (
-    state.fieldMaps[pair.key] ??
-    reconcileFieldMap(savedFieldMaps[savedPairKey(pair.notetype.name, pair.modelName)], pair.notetype.fields, pair.libFields)
-  )
+  const chosen = state.fieldMaps[pair.key] ?? savedFieldMaps[savedPairKey(pair.notetype.name, pair.modelName)]
+  return reconcileFieldMap(chosen, pair.notetype.fields, pair.libFields)
 }
 
 /** Point a library field at a package field ('' for none), remember it, and re-classify. */
 function setFieldMap(pair, libField, pkgField) {
   state.fieldMaps[pair.key] = { ...fieldMapOf(pair), [libField]: pkgField }
+  rememberFieldMap(pair)
+}
+
+/**
+ * Schedule a library field named after a package field and map that package
+ * field into it. Nothing is written to Anki until Apply, after the backup.
+ */
+function addLibraryField(pair, pkgField) {
+  const scheduled = state.newFields[pair.modelName] ?? []
+  if (!scheduled.includes(pkgField)) state.newFields[pair.modelName] = [...scheduled, pkgField]
+  setFieldMap(pair, pkgField, pkgField)
+}
+
+/** Unschedule a field added with addLibraryField. */
+function removeLibraryField(pair, field) {
+  state.newFields[pair.modelName] = (state.newFields[pair.modelName] ?? []).filter((f) => f !== field)
+  const map = { ...fieldMapOf(pair) }
+  delete map[field]
+  state.fieldMaps[pair.key] = map
   rememberFieldMap(pair)
 }
 
@@ -327,7 +354,7 @@ const fieldPairs = computed(() => {
     if (!modelName) continue
     const key = pairKey(e.notetype.id, modelName)
     if (!pairs.has(key)) {
-      const libFields = state.libModelFields[modelName] ?? []
+      const libFields = libFieldsOf(modelName)
       pairs.set(key, { key, notetype: e.notetype, modelName, libFields, matched: 0, added: 0, samples: [] })
     }
     const pair = pairs.get(key)
@@ -371,6 +398,7 @@ const plan = computed(() =>
         deckMode: state.deckMode,
         targetDeck: state.targetDeck,
         mergeTag: state.mergeTag,
+        newFields: state.newFields,
       })
     : null,
 )
@@ -391,6 +419,11 @@ async function applyMerge() {
     state.applied = true
     localStorage.removeItem(reviewKey(state.pkgPath))
   })
+  // Fields that now exist in Anki stop being "scheduled", even if a later step failed.
+  for (const { modelName, fieldName } of state.report.fieldsCreated) {
+    state.libModelFields[modelName] = [...(state.libModelFields[modelName] ?? []), fieldName]
+    state.newFields[modelName] = (state.newFields[modelName] ?? []).filter((f) => f !== fieldName)
+  }
 }
 
 // Cached data: URLs for previews, keyed by source + filename.
@@ -421,7 +454,10 @@ export function useMergeSession() {
     plan,
     fieldPairs,
     fieldMapOf,
+    libFieldsOf,
     setFieldMap,
+    addLibraryField,
+    removeLibraryField,
     resetFieldMap,
     checkConnection,
     openPackage,

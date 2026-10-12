@@ -41,6 +41,10 @@ const failures = computed(() => {
       <ul>
         <li>Create a full collection backup (aborts if it fails)</li>
         <li v-if="plan.modelsToCreate.length">Create note types: {{ plan.modelsToCreate.map((m) => m.modelName).join(', ') }}</li>
+        <li v-if="plan.fieldsToCreate.length">
+          Add fields: {{ plan.fieldsToCreate.map((f) => `${f.fieldName} → ${f.modelName}`).join(', ') }}
+          <span class="warn-text small">(the next AnkiWeb sync will be a one-way full sync)</span>
+        </li>
         <li>
           Add <b>{{ plan.newNotes.length }}</b> new notes to
           <template v-if="plan.decks.length === 1"><b>{{ plan.decks[0] }}</b></template>
@@ -91,6 +95,9 @@ const failures = computed(() => {
         <li>Added {{ state.report.added.ok }} notes</li>
         <li>Updated {{ state.report.updated.ok }} notes</li>
         <li>Tagged {{ state.report.tagged.ok }} notes</li>
+        <li v-if="state.report.fieldsCreated.length">
+          Added fields: {{ state.report.fieldsCreated.map((f) => `${f.fieldName} → ${f.modelName}`).join(', ') }}
+        </li>
         <li>
           Stored {{ state.report.media.stored }} media files
           <span v-if="Object.keys(state.report.media.renamed).length">

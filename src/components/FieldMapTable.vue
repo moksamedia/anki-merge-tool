@@ -6,10 +6,14 @@ import { plainText } from '../lib/display.js'
 // One pair's field map: {key, notetype, modelName, libFields, samples: [pkgFields]}.
 const props = defineProps({ pair: { type: Object, required: true } })
 
-const { fieldMapOf, setFieldMap, resetFieldMap } = useMergeSession()
+const { state, fieldMapOf, setFieldMap, resetFieldMap, addLibraryField, removeLibraryField } = useMergeSession()
 
 const mapOf = () => fieldMapOf(props.pair)
 const unmapped = () => unmappedFields(props.pair.notetype.fields, mapOf())
+const scheduled = () => state.newFields[props.pair.modelName] ?? []
+const isNew = (lib) => scheduled().includes(lib)
+// A package field can become a library field unless one with that name already exists.
+const canAdd = (pkg) => !sameNamedField(props.pair.libFields, pkg)
 
 /** Row status: paired by same name, mapped by hand to a differently named field, or fed by nothing. */
 function rowStatus(lib) {
@@ -52,14 +56,34 @@ function example(lib) {
         </td>
         <td>
           <span class="lib-field">{{ lib }}</span>
-          <span class="badge">{{ STATUS_TEXT[rowStatus(lib)] }}</span>
+          <span v-if="isNew(lib)" class="badge new-field">new field</span>
+          <span v-else class="badge">{{ STATUS_TEXT[rowStatus(lib)] }}</span>
+          <button
+            v-if="isNew(lib)"
+            class="link small forget"
+            :title="`Don't add ${lib} to ${pair.modelName}`"
+            @click="removeLibraryField(pair, lib)"
+          >
+            ×
+          </button>
         </td>
         <td class="small">{{ example(lib) }}</td>
       </tr>
     </tbody>
   </table>
   <div class="row small map-foot">
-    <span v-if="unmapped().length" class="warn-text">Not imported (no library field takes them): {{ unmapped().join(', ') }}</span>
-    <button class="link small" @click="resetFieldMap(pair)">Reset to matching names</button>
+    <span v-if="unmapped().length" class="warn-text">Not imported (no library field takes them):</span>
+    <span v-for="f in unmapped()" :key="f" class="unmapped">
+      {{ f }}
+      <button v-if="canAdd(f)" class="link small" :title="`Add a ${f} field to ${pair.modelName}`" @click="addLibraryField(pair, f)">
+        + add field
+      </button>
+    </span>
+    <button class="link small reset" @click="resetFieldMap(pair)">Reset to matching names</button>
   </div>
+  <p v-if="scheduled().length" class="muted small">
+    New fields are added to <b>{{ pair.modelName }}</b> by Apply, after the backup, and only if a note fills them. Card
+    templates won't show them until you edit the templates. Changing a note type's fields makes Anki's next AnkiWeb sync a
+    one-way full sync.
+  </p>
 </template>

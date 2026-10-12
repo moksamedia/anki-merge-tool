@@ -214,7 +214,9 @@ footer.row { margin-top: 12px; }
 .field-maps[open] > summary { margin-bottom: 10px; }
 .map-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
 .map-foot { margin-top: 6px; }
-.map-foot button { margin-left: auto; }
+.map-foot .reset { margin-left: auto; }
+.map-foot .unmapped { display: inline-flex; align-items: baseline; gap: 4px; padding: 1px 8px; border: 1px solid var(--border); border-radius: 10px; }
+.map-foot .unmapped button { padding: 0; }
 button.fields-toggle { margin-top: 10px; }
 
 .recent { margin: 16px 0; }
@@ -222,7 +224,7 @@ button.fields-toggle { margin-top: 10px; }
 .recent ul { list-style: none; margin: 0; padding: 0; }
 .recent li { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .recent li .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.recent .forget { color: var(--muted); }
+button.forget { color: var(--muted); }
 .pair + .pair { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 14px; }
 table.map th:first-child, table.map td:first-child { width: 34%; }
 table.map td:nth-child(2) { width: 32%; white-space: nowrap; }
@@ -241,5 +243,6 @@ table.map tr.map-manual .badge { color: var(--manual); border-color: var(--manua
 table.map tr.map-none td { background: var(--del-bg); }
 table.map tr.map-none td:first-child { border-left-color: var(--danger); }
 table.map tr.map-none .badge { color: var(--danger); border-color: var(--danger); }
+table.map tr .badge.new-field { color: var(--accent); border-color: var(--accent); }
 footer.row button.primary { margin-top: 0; }
 </style>

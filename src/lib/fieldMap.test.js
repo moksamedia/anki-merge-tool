@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultFieldMap, mapFields, needsFieldMap, reconcileFieldMap, unmappedFields } from './fieldMap.js'
+import { defaultFieldMap, mapFields, needsFieldMap, reconcileFieldMap, unmappedFields, withNewFields } from './fieldMap.js'
 
 describe('defaultFieldMap', () => {
   it('pairs fields by name, exact first, then case-insensitively', () => {
@@ -45,5 +45,16 @@ describe('needsFieldMap', () => {
     expect(needsFieldMap(nt, 'Words', ['Front', 'Back'])).toBe(true)
     expect(needsFieldMap(nt, 'Vocab', ['Front', 'Back', 'Notes'])).toBe(true)
     expect(needsFieldMap(nt, 'Vocab', ['Front'])).toBe(true)
+  })
+})
+
+describe('withNewFields', () => {
+  it('appends scheduled fields, empty, to notes of that model only', () => {
+    const a = { id: 1, modelName: 'Vocab', fieldOrder: ['Front'], fields: { Front: 'x' } }
+    const b = { id: 2, modelName: 'Other', fieldOrder: ['Front'], fields: { Front: 'y' } }
+    const [na, nb] = withNewFields([a, b], { Vocab: ['Audio', 'Front'] })
+    expect(na.fieldOrder).toEqual(['Front', 'Audio'])
+    expect(na.fields).toEqual({ Front: 'x', Audio: '' })
+    expect(nb).toBe(b)
   })
 })

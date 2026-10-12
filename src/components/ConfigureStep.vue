@@ -7,7 +7,7 @@ import { sanitizeTag } from '../lib/applyMerge.js'
 import FieldMapTable from './FieldMapTable.vue'
 
 const emit = defineEmits(['done'])
-const { settings, state, fieldMapOf, setNoteTypeTarget, runAnalysis } = useMergeSession()
+const { settings, state, fieldMapOf, libFieldsOf, setNoteTypeTarget, runAnalysis } = useMergeSession()
 
 // Field mapping stays hidden by default: fields pair by name unless the user
 // opens it and chooses otherwise.
@@ -56,7 +56,7 @@ const rows = computed(() =>
   usedTypes.value.map((nt) => {
     const m = state.mapping[nt.id]
     if (m.create) return { nt, pair: null, needsMap: false, unmapped: [], main: mainFieldName(nt.fields, settings.mainField) }
-    const libFields = state.libModelFields[m.modelName] ?? []
+    const libFields = libFieldsOf(m.modelName)
     const pair = { key: pairKey(nt.id, m.modelName), notetype: nt, modelName: m.modelName, libFields, samples: samples.value.get(nt.id) ?? [] }
     return {
       nt,

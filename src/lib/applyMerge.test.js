@@ -149,6 +149,22 @@ describe('buildPlan', () => {
     expect(p.tagAdds).toEqual([{ guids: ['a1'], id: 100, tags: ['extra'] }])
   })
 
+  it('creates scheduled library fields only when something is written into them', () => {
+    const entry = {
+      kind: 'new',
+      guid: 'n3',
+      notetype,
+      target: { modelName: 'Vocab', create: false },
+      pkgFields: { Front: 'f', Back: 'b' },
+      fieldMap: { Front: 'Front', Extra: 'Back', Unused: '' },
+      pkgNote: { tags: [] },
+    }
+    const newFields = { Vocab: ['Extra', 'Unused'] }
+    const p = buildPlan({ pkg, entries: [entry], resolutions: {}, excluded: new Set(), targetDeck: 'D', newFields })
+    expect(p.fieldsToCreate).toEqual([{ modelName: 'Vocab', fieldName: 'Extra' }])
+    expect(p.newNotes[0].fields).toEqual({ Front: 'f', Extra: 'b' })
+  })
+
   it('honours exclusions', () => {
     const p = buildPlan({ pkg, entries, resolutions, excluded: new Set(['n1', 'a1']), targetDeck: 'D' })
     expect(p.newNotes).toHaveLength(0)
@@ -281,6 +297,23 @@ describe('executePlan', () => {
     expect(added.fields.Front).toBe('<img src="a-1.jpg">')
     expect(report).toMatchObject({ added: { ok: 1 }, updated: { ok: 2 }, tagged: { ok: 1 } })
     expect(report.media.renamed).toEqual({ 'a.jpg': 'a-1.jpg' })
+  })
+
+  it('adds scheduled library fields after the backup and before any note is written', async () => {
+    const client = fakeClient()
+    const p = { ...plan(), fieldsToCreate: [{ modelName: 'Vocab', fieldName: 'Audio' }] }
+    const report = await executePlan(client, p, { readMedia })
+    const add = client.call.mock.calls.findIndex((c) => c[0] === 'modelFieldAdd')
+    expect(client.call.mock.calls[add][1]).toEqual({ modelName: 'Vocab', fieldName: 'Audio' })
+    expect(client.call.mock.invocationCallOrder[add]).toBeLessThan(client.multi.mock.invocationCallOrder[0])
+    expect(report.fieldsCreated).toEqual([{ modelName: 'Vocab', fieldName: 'Audio' }])
+  })
+
+  it('stops before writing notes when a field cannot be added', async () => {
+    const client = fakeClient({ call: vi.fn(async (action) => { if (action === 'modelFieldAdd') throw 'editor open' }) })
+    const p = { ...plan(), fieldsToCreate: [{ modelName: 'Vocab', fieldName: 'Audio' }] }
+    await expect(executePlan(client, p, { readMedia })).rejects.toThrow(/Couldn't add field "Audio"/)
+    expect(client.multi).not.toHaveBeenCalled()
   })
 
   it('creates every deck the plan needs', async () => {
