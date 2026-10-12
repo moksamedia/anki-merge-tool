@@ -209,23 +209,26 @@ table.fields tbody th { overflow-wrap: anywhere; }
 table.fields tbody th small { display: block; font-weight: normal; color: var(--muted); }
 table.fields tr.conflict th { background: var(--conflict-bg); }
 table.fields tr.fill th { background: var(--fill-bg); }
-.result .cell-tools { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 4px; }
-.result .edited { color: var(--manual); }
+.result { position: relative; }
+.result .edited { display: block; margin-bottom: 2px; color: var(--manual); }
+/* No box around the Result content; a faint tint shows which one has focus. */
+.result textarea { border: none; border-radius: 4px; background: transparent; padding: 2px 4px; outline: none; }
+.result textarea:focus, .html-editor:focus { background: var(--bg); }
 
-/* Segmented Code | Editor switches. */
-.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.seg button { border: none; border-radius: 0; padding: 4px 10px; font-size: 12px; background: var(--panel); }
-.seg.small button { padding: 1px 7px; font-size: 11px; }
-.seg button + button { border-left: 1px solid var(--border); }
-.seg button.on { background: var(--accent); color: var(--accent-text); }
-.seg button.on:hover { border-color: var(--border); }
+/* Code (<>) | Editor (pen) switches. In a Result cell they float top-right and show on hover. */
+.mode-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel); }
+.mode-switch button { display: grid; place-items: center; border: none; border-radius: 0; padding: 4px 7px; color: var(--muted); background: var(--panel); }
+.mode-switch button + button { border-left: 1px solid var(--border); }
+.mode-switch button:hover { color: var(--text); }
+.mode-switch button.on { color: var(--accent-text); background: var(--accent); }
+.result .mode-switch.float { position: absolute; top: 4px; right: 4px; z-index: 1; opacity: 0; transition: opacity 0.12s; }
+.result:hover .mode-switch.float, .result:focus-within .mode-switch.float { opacity: 1; }
 
 /* The Anki-like field editor. */
 .html-editor {
-  min-height: 44px; padding: 6px 8px; border: 1px solid var(--field-border); border-radius: 4px;
-  background: var(--panel); outline: none; white-space: pre-wrap; word-break: break-word; line-height: 1.5;
+  min-height: 44px; padding: 2px 4px; border-radius: 4px;
+  outline: none; white-space: pre-wrap; word-break: break-word; line-height: 1.5;
 }
-.html-editor:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .html-editor:empty::before { content: '(empty)'; color: var(--muted); font-style: italic; font-size: 13px; font-family: system-ui, sans-serif; }
 .html-editor img { max-width: 100%; max-height: 240px; vertical-align: middle; }
 .result textarea { width: 100%; font-family: 'Tibetan Large', ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.8; resize: vertical; }

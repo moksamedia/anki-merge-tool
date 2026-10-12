@@ -9,6 +9,7 @@ import DiffText from './DiffText.vue'
 import FieldPreview from './FieldPreview.vue'
 import MediaStrip from './MediaStrip.vue'
 import HtmlEditor from './HtmlEditor.vue'
+import ModeSwitch from './ModeSwitch.vue'
 
 const props = defineProps({
   entry: { type: Object, required: true },
@@ -111,10 +112,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       </div>
       <div class="row">
         <label class="toggle"><input v-model="rendered" type="checkbox" /> Rendered (R)</label>
-        <span class="seg" role="group" aria-label="Result cells" title="How every Result cell is edited (E)">
-          <button :class="{ on: settings.resultMode === 'code' }" @click="setAllModes('code')">Code</button>
-          <button :class="{ on: settings.resultMode === 'editor' }" @click="setAllModes('editor')">Editor</button>
-        </span>
+        <ModeSwitch :model-value="settings.resultMode" label="All Result cells (E)" @update:model-value="setAllModes" />
         <button :disabled="index === 0" @click="emit('prev')">← Prev</button>
         <span class="muted">{{ index + 1 }} / {{ total }}</span>
         <button :disabled="index === total - 1" @click="emit('next')">Next →</button>
@@ -166,14 +164,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             </template>
           </td>
           <td class="result" @keydown="onCellKey(f, $event)">
-            <div class="cell-tools">
-              <small v-if="isManualEdit(f, valueOf(f))" class="edited">edited by hand</small>
-              <span v-else></span>
-              <span class="seg small" role="group" :aria-label="`Edit ${f.name} as`" title="This cell (Ctrl/Cmd+Shift+X)">
-                <button :class="{ on: modeOf(f) === 'code' }" @click="cellModes[f.name] = 'code'">Code</button>
-                <button :class="{ on: modeOf(f) === 'editor' }" @click="cellModes[f.name] = 'editor'">Editor</button>
-              </span>
-            </div>
+            <ModeSwitch class="float" :model-value="modeOf(f)" :label="`Edit ${f.name} as (Ctrl/Cmd+Shift+X)`" @update:model-value="cellModes[f.name] = $event" />
+            <small v-if="isManualEdit(f, valueOf(f))" class="edited">edited by hand</small>
             <template v-if="modeOf(f) === 'editor'">
               <HtmlEditor v-model="resolution.values[f.name]" :font="fontFor(f)" source="result" />
             </template>
