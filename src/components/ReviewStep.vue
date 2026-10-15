@@ -276,7 +276,8 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
           <!-- Dimmed once left out; undecided rows stay at full strength, since they still need a decision. -->
           <tr v-for="e in shownDuplicates" :key="e.guid" :class="{ pending: dupDecision(e) === 'skip' }">
             <td>
-              <b>{{ label(e) }}</b> <span class="muted small">{{ e.notetype.name }}</span>
+              <!-- Same shape as the library notes' header: note type in bold, then what identifies the note. -->
+              <b>{{ e.notetype.name }}</b> <span class="muted small">·</span> {{ label(e) }}
               <dl class="field-lines small">
                 <div v-for="f in fieldLines(e.pkgFields)" :key="f.name"><dt>{{ f.name }}</dt><dd>{{ f.text }}</dd></div>
               </dl>
