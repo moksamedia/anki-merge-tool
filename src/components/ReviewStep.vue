@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
-import { entryLabel, fieldsGlimpse } from '../lib/display.js'
+import { entryLabel, summaryFields } from '../lib/display.js'
 import ConflictMerge from './ConflictMerge.vue'
 import MediaStrip from './MediaStrip.vue'
 import MergedNote from './MergedNote.vue'
@@ -54,7 +54,7 @@ const libById = computed(() => new Map(state.libNotes.map((n) => [n.id, n])))
 /** The notes of other types a possible duplicate would duplicate. */
 const othersOf = (e) =>
   (state.matches?.get(e.guid)?.elsewhere ?? []).map((id) => libById.value.get(id)).filter(Boolean)
-const glimpse = (fields) => fieldsGlimpse(fields, settings.mainField)
+const fieldLines = (fields) => summaryFields(fields, settings.mainField)
 // All of a note's field HTML, for MediaStrip to find its images and sounds.
 const mediaHtml = (fields) => Object.values(fields ?? {}).join(' ')
 const mergedEntries = computed(() =>
@@ -254,13 +254,17 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
           <tr v-for="e in shownDuplicates" :key="e.guid" :class="{ pending: dupDecision(e) === 'skip' }">
             <td>
               <b>{{ label(e) }}</b> <span class="muted small">{{ e.notetype.name }}</span>
-              <div class="muted small">{{ glimpse(e.pkgFields) }}</div>
+              <dl class="field-lines small">
+                <div v-for="f in fieldLines(e.pkgFields)" :key="f.name"><dt>{{ f.name }}</dt><dd>{{ f.text }}</dd></div>
+              </dl>
               <MediaStrip :html="mediaHtml(e.pkgFields)" source="pkg" lazy />
             </td>
             <td>
               <div v-for="n in othersOf(e)" :key="n.id" class="other" :class="{ on: e.crossType && e.libNote.id === n.id }">
                 <b>{{ n.modelName }}</b> <span class="muted small">· note {{ n.id }}</span>
-                <div class="muted small">{{ glimpse(n.fields) }}</div>
+                <dl class="field-lines small">
+                  <div v-for="f in fieldLines(n.fields)" :key="f.name"><dt>{{ f.name }}</dt><dd>{{ f.text }}</dd></div>
+                </dl>
                 <MediaStrip :html="mediaHtml(n.fields)" source="lib" lazy />
                 <button class="link small" @click="openInAnki(n.id)">Open in Anki</button>
                 <span v-if="e.crossType && e.libNote.id === n.id" class="small ok-text">
@@ -312,5 +316,9 @@ table.dups td { vertical-align: top; }
 .dups .other + .other { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .dups .other.on { background: var(--fill-bg); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 6px; padding: 4px 6px; }
 .decide { white-space: nowrap; }
+.field-lines { margin: 4px 0 0; }
+.field-lines dt { display: inline; font-weight: 600; color: var(--muted); }
+.field-lines dt::after { content: ': '; }
+.field-lines dd { display: inline; margin: 0; }
 .decide button.on { background: var(--fill-bg); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 600; }
 </style>
