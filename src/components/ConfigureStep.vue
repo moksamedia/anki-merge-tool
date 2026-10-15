@@ -46,9 +46,10 @@ async function analyze() {
           <datalist id="field-names"><option v-for="f in allFieldNames" :key="f" :value="f" /></datalist>
         </label>
         <p class="muted small">
-          Notes match by GUID first; otherwise by this field across the whole library (any deck, any note type), ignoring
-          formatting, case, Unicode spelling of stacks, and trailing tsheg/shad. A package note type without this field
-          falls back to its first field, matched only within the library note type it maps to.
+          Notes match by GUID first, otherwise by this field, ignoring formatting, case, Unicode spelling of stacks, and
+          trailing tsheg/shad. Each package note type is matched only against the library note type it maps to (set after
+          analysis, on Note types); a note whose field exists only in another type is listed in Review as a possible
+          duplicate. A package note type without this field falls back to its first field.
         </p>
         <label class="toggle">
           <input v-model="settings.ignoreGuid" type="checkbox" />

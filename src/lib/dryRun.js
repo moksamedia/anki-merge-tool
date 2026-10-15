@@ -33,6 +33,7 @@ function changeReason(entries, field, to) {
  * @param excluded       Set of guids never written (the merged ledger)
  * @param accepted       Set of accepted new-note and auto-merge guids (merging is opt-in)
  * @param merged         {guid: ledger entry} notes written by an earlier run
+ * @param dupDecisions   {guid: 'add' | 'skip'} decisions on possible duplicates
  * @param libDecks       existing library deck names
  * @param mapping        {pkgNotetypeId: {modelName, create}}
  * @param fieldMaps      [{package, library, fieldMap}] for note type pairs whose fields don't line up by name
@@ -48,6 +49,7 @@ export function buildDryRun({
   excluded = new Set(),
   accepted = new Set(),
   merged = {},
+  dupDecisions = {},
   libDecks,
   mapping,
   fieldMaps = [],
@@ -104,8 +106,11 @@ export function buildDryRun({
     }
     const status = resolutions[e.guid]?.status
     const optIn = e.kind === 'new' || e.kind === 'auto'
+    const duplicate = e.kind === 'new' && e.elsewhere?.length > 0
     const reason = merged[e.guid] || excluded.has(e.guid)
       ? 'merged'
+      : duplicate && !accepted.has(e.guid)
+        ? dupDecisions[e.guid] === 'skip' ? 'duplicate skipped' : 'duplicate undecided'
       : optIn && !accepted.has(e.guid)
         ? 'not accepted'
         : e.kind === 'conflict' && status === 'skipped'
@@ -124,6 +129,11 @@ export function buildDryRun({
     const l = label(e, mainField)
     if (e.ambiguous) warnings.push({ kind: 'ambiguous', guid: e.guid, label: l, detail: `Several library notes share this main field; writing to note ${e.libNote.id} (${e.picked ? 'your choice' : 'the closest'}).` })
     if (e.sharedWith?.length) warnings.push({ kind: 'shared', guid: e.guid, label: l, detail: `Matches the same library note as ${e.sharedWith.length} other package note(s).` })
+    if (e.kind === 'new' && e.elsewhere?.length) {
+      const where = e.elsewhere.map((o) => `${o.modelName} note ${o.id}`).join(', ')
+      warnings.push({ kind: 'duplicate', guid: e.guid, label: l, detail: `Also exists as ${where}; added anyway.` })
+    }
+    if (e.crossType) warnings.push({ kind: 'crossType', guid: e.guid, label: l, detail: `Merged into ${e.libNote.modelName} note ${e.libNote.id}, another note type, by your choice.` })
     if (e.dropped?.length) warnings.push({ kind: 'dropped', guid: e.guid, label: l, detail: `Package content not merged (no matching library field): ${e.dropped.join(', ')}` })
   }
   const collisions = plan.collisions.map((c) => ({
@@ -209,6 +219,10 @@ export function buildDryRun({
       notAccepted: {
         new: skipped.filter((s) => s.reason === 'not accepted' && s.kind === 'new').length,
         auto: skipped.filter((s) => s.reason === 'not accepted' && s.kind === 'auto').length,
+      },
+      duplicates: {
+        undecided: skipped.filter((s) => s.reason === 'duplicate undecided').length,
+        skipped: skipped.filter((s) => s.reason === 'duplicate skipped').length,
       },
       alreadyMerged: Object.keys(merged).length,
       notesAdded: newNotes.length,

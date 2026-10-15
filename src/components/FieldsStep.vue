@@ -5,10 +5,10 @@ import { mainFieldName } from '../lib/match.js'
 import { needsFieldMap, pairKey, savedPairKey, unmappedFields } from '../lib/fieldMap.js'
 import FieldMapTable from './FieldMapTable.vue'
 
-// Shown after analysis, when it's known which library note types the package
-// notes go through. On top, the library type each package type's new notes go
-// to (changeable here, which re-analyzes); below, the field map of each target,
-// then of the other types notes matched into. Fields pair by name unless changed.
+// Shown after analysis. On top, the library type each package type maps to:
+// its notes are matched only against that type, and its new notes are added to
+// it (changing one re-analyzes). Below, the field map of each pair, then of any
+// other type a possible duplicate was merged into by the user's choice.
 const emit = defineEmits(['done'])
 const { state, settings, allFieldPairs, fieldMapOf, libFieldsOf, pkgSamples, setNoteTypeTarget, runAnalysis } =
   useMergeSession()
@@ -42,7 +42,10 @@ const groups = computed(() =>
       }
     }
     const matchOn = mainFieldName(target.create ? nt.fields : libFieldsOf(target.modelName), settings.mainField)
-    return { nt, notes, target, main, others: pairs.filter((p) => !p.configured), matchOn }
+    const duplicates = state.entries.filter(
+      (e) => e.notetype.id === nt.id && !state.merged[e.guid] && ((e.kind === 'new' && e.elsewhere?.length) || e.crossType),
+    ).length
+    return { nt, notes, target, main, others: pairs.filter((p) => !p.configured), matchOn, duplicates }
   }),
 )
 
@@ -105,8 +108,9 @@ const pairCounts = (pair) =>
     <div class="card">
       <h3>Note types</h3>
       <p class="muted small">
-        The library note type each package note type's new notes go to. Changing one re-analyzes; choices are remembered
-        for the next package with the same note types.
+        The library note type each package note type maps to: its notes are matched only against notes of that type, and
+        its new notes are added to it. Changing one re-analyzes; choices are remembered for the next package with the same
+        note types.
       </p>
       <table class="plain">
         <thead><tr><th>Package note type</th><th>Library note type</th><th>Notes</th></tr></thead>
@@ -123,7 +127,9 @@ const pairCounts = (pair) =>
             </td>
             <td class="small">
               {{ plural(g.notes, 'note') }} · matching on <b>{{ g.matchOn }}</b>
-              <span v-if="g.others.length" class="muted">· also matched into {{ g.others.length }} other type{{ g.others.length === 1 ? '' : 's' }}</span>
+              <span v-if="g.duplicates" class="warn-text">
+                · {{ plural(g.duplicates, 'possible duplicate') }} in other note types, decided in Review
+              </span>
             </td>
           </tr>
         </tbody>
@@ -151,10 +157,10 @@ const pairCounts = (pair) =>
       </p>
 
       <template v-if="otherPairs.length">
-        <h4 class="others">Matched into other note types</h4>
+        <h4 class="others">Merged into other note types</h4>
         <p class="muted small">
-          Matching by main field found package notes that already exist in your library under another note type. Those
-          notes stay in their type; they're compared and filled through these maps, and new notes never go here.
+          Possible duplicates you chose, in Review, to merge into an existing note of another type. Those notes stay in their
+          type; they're compared and filled through these maps.
         </p>
         <details v-for="pair in otherPairs" :key="pair.key" class="pair" :open="isOpen(pair)" @toggle="onToggle(pair, $event.target.open)">
           <summary class="map-head">

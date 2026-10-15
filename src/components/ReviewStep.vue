@@ -1,16 +1,36 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
-import { entryLabel } from '../lib/display.js'
+import { entryLabel, fieldsGlimpse } from '../lib/display.js'
 import ConflictMerge from './ConflictMerge.vue'
 import MergedNote from './MergedNote.vue'
 
 const emit = defineEmits(['done', 'fields'])
-const { state, settings, counts, fieldPairs, pkgDeckName, acceptAll, clearAll, acceptAllWithoutConflict, setAccepted } =
-  useMergeSession()
+const {
+  state,
+  settings,
+  counts,
+  fieldPairs,
+  pkgDeckName,
+  acceptAll,
+  clearAll,
+  acceptAllWithoutConflict,
+  setAccepted,
+  decideDuplicate,
+  decideAllDuplicates,
+  openInAnki,
+} = useMergeSession()
 const deckOf = (e) => (state.deckMode === 'package' && pkgDeckName(e.pkgNote.deckId)) || state.targetDeck
 
-const tab = ref(counts.value.conflict ? 'conflict' : counts.value.auto || counts.value.new ? 'auto' : 'merged')
+const tab = ref(
+  counts.value.conflict
+    ? 'conflict'
+    : counts.value.auto || counts.value.new
+      ? 'auto'
+      : counts.value.duplicate
+        ? 'duplicate'
+        : 'merged',
+)
 const current = ref(0)
 const currentMerged = ref(0)
 
@@ -19,7 +39,21 @@ const open = (e) => !state.merged[e.guid]
 const byKind = (kind) => state.entries.filter((e) => open(e) && e.kind === kind)
 const conflicts = computed(() => byKind('conflict'))
 const autos = computed(() => byKind('auto'))
-const news = computed(() => byKind('new'))
+// Possible duplicates (new notes whose main field already exists in another
+// library note type) are decided in their own tab, not ticked with new notes.
+const isDuplicate = (e) => e.kind === 'new' && e.elsewhere?.length > 0
+const news = computed(() => byKind('new').filter((e) => !isDuplicate(e)))
+const duplicates = computed(() => state.entries.filter((e) => open(e) && (isDuplicate(e) || e.crossType)))
+const undecidedOnly = ref(false)
+const dupDecision = (e) => (e.crossType ? 'merge' : state.dupDecisions[e.guid] ?? null)
+const shownDuplicates = computed(() =>
+  undecidedOnly.value ? duplicates.value.filter((e) => !dupDecision(e)) : duplicates.value,
+)
+const libById = computed(() => new Map(state.libNotes.map((n) => [n.id, n])))
+/** The notes of other types a possible duplicate would duplicate. */
+const othersOf = (e) =>
+  (state.matches?.get(e.guid)?.elsewhere ?? []).map((id) => libById.value.get(id)).filter(Boolean)
+const glimpse = (fields) => fieldsGlimpse(fields, settings.mainField)
 const mergedEntries = computed(() =>
   state.entries
     .filter((e) => !open(e))
@@ -79,6 +113,9 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
       </button>
       <button :class="{ on: tab === 'new' }" @click="tab = 'new'">
         <b>{{ counts.new }}</b> new notes <small>{{ counts.accepted.new }} accepted</small>
+      </button>
+      <button :class="{ on: tab === 'duplicate' }" @click="tab = 'duplicate'">
+        <b>{{ counts.duplicate }}</b> possible duplicates <small>{{ counts.duplicateDecided }} decided</small>
       </button>
       <button :class="{ on: tab === 'merged' }" @click="tab = 'merged'"><b>{{ counts.merged }}</b> merged</button>
       <div><b>{{ counts.identical }}</b> identical</div>
@@ -151,7 +188,10 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
         <tbody>
           <tr v-for="e in autos" :key="e.guid" :class="{ pending: !isAccepted(e) }">
             <td><input type="checkbox" :checked="isAccepted(e)" :aria-label="`Accept ${label(e)}`" @change="toggle(e)" /></td>
-            <td><span v-if="e.sharedWith.length || e.ambiguous" class="warn-text" :title="warnTitle(e)">⚠ </span>{{ label(e) }}</td>
+            <td>
+              <span v-if="e.sharedWith.length || e.ambiguous" class="warn-text" :title="warnTitle(e)">⚠ </span>{{ label(e) }}
+              <span v-if="e.crossType" class="badge" title="Merged into a note of another type, chosen under Possible duplicates">into {{ e.libNote.modelName }}</span>
+            </td>
             <td class="small">
               <div v-for="f in e.fields.filter((x) => x.status === 'fill')" :key="f.name">
                 <b>{{ f.name }}:</b> {{ f.pkg }}
@@ -187,6 +227,54 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
       </table>
     </div>
 
+    <div v-else-if="tab === 'duplicate'" class="card">
+      <div class="row bulk">
+        <span class="muted small">
+          These package notes found no match in the note type they map to, but their {{ settings.mainField }} already exists
+          in another note type. Adding them would create a duplicate. Decide each one: add it anyway, leave it out, or merge
+          it into the existing note. Undecided ones aren't written.
+          <b>{{ counts.duplicateDecided }} of {{ duplicates.length }} decided.</b>
+        </span>
+        <label class="toggle small"><input v-model="undecidedOnly" type="checkbox" /> Undecided only</label>
+        <button :disabled="counts.duplicateDecided === duplicates.length" @click="decideAllDuplicates('skip')">
+          Don't add the undecided
+        </button>
+        <button :disabled="counts.duplicateDecided === duplicates.length" @click="decideAllDuplicates('add')">
+          Add the undecided
+        </button>
+      </div>
+      <p v-if="!duplicates.length" class="muted">No possible duplicates: every match is in the note type it maps to.</p>
+      <table v-else class="plain dups">
+        <thead><tr><th>Package note</th><th>Already in your library</th><th>Decision</th></tr></thead>
+        <tbody>
+          <tr v-for="e in shownDuplicates" :key="e.guid" :class="{ pending: !dupDecision(e) }">
+            <td>
+              <b>{{ label(e) }}</b> <span class="muted small">{{ e.notetype.name }}</span>
+              <div class="muted small">{{ glimpse(e.pkgFields) }}</div>
+            </td>
+            <td>
+              <div v-for="n in othersOf(e)" :key="n.id" class="other" :class="{ on: e.crossType && e.libNote.id === n.id }">
+                <b>{{ n.modelName }}</b> <span class="muted small">· note {{ n.id }}</span>
+                <div class="muted small">{{ glimpse(n.fields) }}</div>
+                <button class="link small" @click="openInAnki(n.id)">Open in Anki</button>
+                <span v-if="e.crossType && e.libNote.id === n.id" class="small ok-text">
+                  · merging into this note ({{ e.kind === 'conflict' ? 'accept it under Conflicts' : e.kind === 'auto' ? 'accepted under Auto-merges' : 'nothing differs' }})
+                </span>
+                <button v-else class="link small" @click="decideDuplicate(e.guid, 'merge', n.id)">· Merge into this note</button>
+              </div>
+            </td>
+            <td class="decide">
+              <button :class="{ on: dupDecision(e) === 'add' }" :title="`Add as a new ${e.target.modelName} note`" @click="decideDuplicate(e.guid, 'add')">
+                Add as new
+              </button>
+              <button :class="{ on: dupDecision(e) === 'skip' }" @click="decideDuplicate(e.guid, 'skip')">Don't add</button>
+              <button v-if="dupDecision(e)" class="link small" @click="decideDuplicate(e.guid, null)">undo</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
     <div v-else>
       <p v-if="!mergedEntries.length" class="muted">Nothing has been merged yet.</p>
       <div v-else class="split">
@@ -214,4 +302,9 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
 .bulk { margin-bottom: 8px; }
 .bulk span { flex: 1; }
 .accept-all { margin-left: auto; }
+table.dups td { vertical-align: top; }
+.dups .other + .other { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.dups .other.on { background: var(--fill-bg); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 6px; padding: 4px 6px; }
+.decide { white-space: nowrap; }
+.decide button.on { background: var(--fill-bg); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 600; }
 </style>

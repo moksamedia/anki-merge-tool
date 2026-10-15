@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { pairKey } from './fieldMap.js'
-import { analyze, compareFields, initialResolution, libraryFingerprint, matchKey, mediaReferences, rankCandidates, selectMatches, toRecord } from './match.js'
+import { analyze, compareFields, crossTypeMatch, initialResolution, libraryFingerprint, matchKey, mediaReferences, rankCandidates, selectMatches, toRecord } from './match.js'
 
 const notetype = { id: 1, name: 'Tibetan Vocab', fields: ['Tibetan', 'English', 'Notes'], templates: [] }
 
@@ -22,7 +22,7 @@ function run(notes, libNotes, guidMap = {}, mapping = DEFAULT_MAPPING, extra = {
   const pkg = { notetypes, notes, media: [] }
   const records = libNotes.map((n) => toRecord(n, settings.mainField))
   const selected = selectMatches({ pkg, guidMap, records, mapping, settings })
-  const matches = rankCandidates({ pkg, matches: selected, libNotes, mapping, fieldMaps: phase2.fieldMaps, picks })
+  const matches = rankCandidates({ pkg, matches: selected, libNotes, fieldMaps: phase2.fieldMaps, picks })
   return analyze({ pkg, matches, libNotes, mapping, settings, ...phase2 })
 }
 
@@ -112,16 +112,11 @@ describe('analyze', () => {
     expect(r.libNote.id).toBe(2)
   })
 
-  it('prefers the mapped note type over a fuller note of another type', () => {
+  it('matches only the declared note type, even when another type has a fuller note', () => {
     const other = libNote(7, ['ཀ', 'x', 'y'], [], 'Debate', ['Tibetan', 'English', 'Notes'])
-    const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [other, libNote(8, ['ཀ', 'kha', ''])])
-    expect(r.libNote.id).toBe(8)
-  })
-
-  it('prefers a filled note of another type over an empty stub in the mapped type', () => {
-    const other = libNote(7, ['ཀ', 'x', ''], [], 'Debate', ['Tibetan', 'English', 'Notes'])
     const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [libNote(8, ['ཀ', '', '']), other])
-    expect(r.libNote.id).toBe(7)
+    expect(r.libNote.id).toBe(8)
+    expect(r.ambiguous).toBe(false)
   })
 
   it('sends an ambiguous match that would write to conflicts', () => {
@@ -147,7 +142,7 @@ describe('analyze', () => {
     const both = [libNote(1, ['ཀ', '', '']), libNote(2, ['ཀ', 'ka', ''])]
     const selected = selectMatches({ pkg, guidMap: {}, records: both.map((n) => toRecord(n, 'tibetan')), mapping: DEFAULT_MAPPING, settings })
     const libNotes = [both[0]] // note 2 was deleted
-    const matches = rankCandidates({ pkg, matches: selected, libNotes, mapping: DEFAULT_MAPPING })
+    const matches = rankCandidates({ pkg, matches: selected, libNotes })
     const [r] = analyze({ pkg, matches, libNotes, mapping: DEFAULT_MAPPING, settings })
     expect(r.libNote.id).toBe(1)
     expect(r.ambiguous).toBe(false)
@@ -182,25 +177,47 @@ describe('analyze', () => {
     expect(results.map((r) => r.sharedWith)).toEqual([['b'], ['a'], []])
   })
 
-  it('matches across note types (library-wide)', () => {
+  it('reports a main-field match in another note type as a possible duplicate', () => {
     const other = libNote(7, ['ཀ', 'ka (other)'], [], 'Tibetan Sentences', ['Tibetan', 'Gloss'])
     const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [other])
-    expect(r.matchedBy).toBe('field')
-    expect(r.libNote.modelName).toBe('Tibetan Sentences')
-    expect(r.dropped).toEqual(['English']) // package fields the other type lacks
+    expect(r.kind).toBe('new')
+    expect(r.elsewhere).toEqual([{ id: 7, modelName: 'Tibetan Sentences' }])
   })
 
-  it('matches library notes even when the package note type is being created', () => {
+  it('reports a GUID match in another note type as a possible duplicate', () => {
+    const other = libNote(7, ['ཁ', 'kha'], [], 'Tibetan Sentences', ['Tibetan', 'Gloss'])
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [other], { g: 7 })
+    expect(r.kind).toBe('new')
+    expect(r.elsewhere.map((e) => e.id)).toEqual([7])
+  })
+
+  it('treats every match as elsewhere when the package type is created as a new type', () => {
     const mapping = { 1: { modelName: 'Tibetan Vocab', create: true } }
     const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [libNote(1, ['ཀ', 'ka', ''])], {}, mapping)
-    expect(r.matchedBy).toBe('field')
+    expect(r.kind).toBe('new')
+    expect(r.elsewhere.map((e) => e.id)).toEqual([1])
   })
 
-  it('prefers a candidate in the mapped note type', () => {
+  it('ignores other types once the declared type has a match', () => {
     const other = libNote(7, ['ཀ', ''], [], 'Other', ['Tibetan', 'Gloss'])
     const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [other, libNote(8, ['ཀ', 'ka', ''])])
     expect(r.libNote.id).toBe(8)
-    expect(r.ambiguous).toBe(true)
+    expect(r.ambiguous).toBe(false)
+    expect(r.elsewhere).toBeUndefined()
+  })
+
+  it('merges into a note of another type when the user picks it', () => {
+    const other = libNote(7, ['ཀ', 'ka (other)', ''], [], 'Tibetan Sentences', ['Tibetan', 'Gloss', 'Notes'])
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', 'n'])], [other], {}, DEFAULT_MAPPING, {}, [notetype], {}, { g: 7 })
+    expect(r.libNote.id).toBe(7)
+    expect(r.crossType).toBe(true)
+    expect(r.matchedBy).toBe('chosen')
+    expect(r.kind).toBe('auto') // fills Notes; English has no Gloss to go to by name
+  })
+
+  it('ignores a pick that is neither a candidate nor elsewhere', () => {
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [], {}, DEFAULT_MAPPING, {}, [notetype], {}, { g: 99 })
+    expect(r.kind).toBe('new')
   })
 
   it('ignores library note types without the main field', () => {
@@ -249,12 +266,20 @@ describe('field names', () => {
   })
 })
 
+describe('crossTypeMatch', () => {
+  it('points a note with only elsewhere hits at the chosen note', () => {
+    const m = { libId: null, matchedBy: null, candidates: [], elsewhere: [7, 8] }
+    expect(crossTypeMatch(m, 8)).toMatchObject({ libId: 8, candidates: [8], crossType: true, elsewhere: [7, 8] })
+  })
+})
+
 describe('field maps', () => {
+  const SENTENCES = { 1: { modelName: 'Tibetan Sentences', create: false } }
   const sentences = (fields) => libNote(7, fields, [], 'Tibetan Sentences', ['Tibetan', 'Gloss', 'Extra'])
   const glossFromEnglish = { [pairKey(1, 'Tibetan Sentences')]: { Tibetan: 'Tibetan', Gloss: 'English', Extra: 'Notes' } }
 
   it('compares a cross-type match through the chosen map', () => {
-    const [r] = run([pkgNote('g', ['ཀ', 'ka', 'n'])], [sentences(['ཀ', 'kaa', ''])], {}, DEFAULT_MAPPING, {}, [notetype], {
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', 'n'])], [sentences(['ཀ', 'kaa', ''])], {}, SENTENCES, {}, [notetype], {
       fieldMaps: glossFromEnglish,
     })
     expect(r.fields.map((f) => [f.name, f.pkgName, f.status])).toEqual([
@@ -276,8 +301,8 @@ describe('field maps', () => {
   it('invalidates a decision when a field is remapped', () => {
     const notes = [pkgNote('g', ['ཀ', 'ka', 'n'])]
     const lib = [sentences(['ཀ', 'kaa', ''])]
-    const [byName] = run(notes, lib)
-    const [mapped] = run(notes, lib, {}, DEFAULT_MAPPING, {}, [notetype], { fieldMaps: glossFromEnglish })
+    const [byName] = run(notes, lib, {}, SENTENCES)
+    const [mapped] = run(notes, lib, {}, SENTENCES, {}, [notetype], { fieldMaps: glossFromEnglish })
     expect(libraryFingerprint(byName)).not.toBe(libraryFingerprint(mapped))
   })
 })

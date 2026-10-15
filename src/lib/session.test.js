@@ -28,6 +28,8 @@ const state = {
     m1: { status: 'accepted', lib: 'fp3', values: { Front: 'c' } },
   },
   accepted: new Set(['n2', 'm1']),
+  picks: { c1: 501, m1: 300 },
+  dupDecisions: { d1: 'skip', d2: 'add', m1: 'add' },
   merged: { m1: { at: 't', run: 1, kind: 'conflict', libNoteId: 300, fields: { Front: 'c' }, tags: [] } },
   runs: [{ at: 't', run: 1 }],
 }
@@ -58,6 +60,8 @@ describe('buildSession / restoreSession', () => {
     expect(restored.newFields).toEqual(state.newFields)
     expect(restored.resolutions).toEqual({ c1: state.resolutions.c1, c2: state.resolutions.c2 })
     expect(restored.accepted).toEqual(new Set(['n2']))
+    expect(restored.picks).toEqual({ c1: 501 })
+    expect(restored.dupDecisions).toEqual({ d1: 'skip', d2: 'add' })
     expect(restored.merged).toEqual(state.merged)
     expect(restored.runs).toEqual(state.runs)
   })

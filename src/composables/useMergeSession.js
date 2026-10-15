@@ -2,7 +2,7 @@ import { computed, markRaw, reactive, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open, save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { createAnkiClient } from '../lib/ankiClient.js'
-import { analyze, initialResolution, libraryFingerprint, namedFields, rankCandidates, selectMatches } from '../lib/match.js'
+import { analyze, crossTypeMatch, initialResolution, libraryFingerprint, namedFields, rankCandidates, selectMatches, uncrossMatch } from '../lib/match.js'
 import { buildPlan, createReport, defaultMergeTag, executePlan } from '../lib/applyMerge.js'
 import { buildDryRun } from '../lib/dryRun.js'
 import { defaultFieldMap, needsFieldMap, pairKey, reconcileFieldMap, savedPairKey, withNewFields } from '../lib/fieldMap.js'
@@ -85,6 +85,9 @@ const state = reactive({
   resolutions: {},
   // {guid: libraryNoteId}: the user's choice where several library notes share a main field.
   picks: {},
+  // {guid: 'add' | 'skip'}: decisions on possible duplicates — new notes whose
+  // main field (or GUID) already exists in another library note type.
+  dupDecisions: {},
   // New notes and auto-merges the user accepted. Merging is opt-in: nothing
   // outside this set (or, for conflicts, an accepted resolution) is written.
   accepted: new Set(),
@@ -136,6 +139,7 @@ watch(
   () => [
     state.resolutions,
     state.picks,
+    state.dupDecisions,
     state.accepted,
     state.merged,
     state.runs,
@@ -262,6 +266,7 @@ async function openPackage(path = null) {
       state.entries = []
       state.resolutions = {}
       state.picks = {}
+      state.dupDecisions = {}
       state.accepted = new Set()
       state.analyzedAt = null
       state.merged = {}
@@ -293,6 +298,7 @@ function restoreSaved(record) {
   state.resolutions = r.resolutions
   // Applied by rankCandidates while the chosen note is still a candidate.
   state.picks = r.picks
+  state.dupDecisions = r.dupDecisions
   // Raw until analysis keeps only guids that are still new notes or auto-merges (classify).
   state.accepted = r.accepted
   state.merged = r.merged
@@ -388,10 +394,11 @@ async function runAnalysis() {
     // Every candidate is loaded, not just the first, so ambiguous matches can be
     // ranked on content and switched in review without asking Anki again.
     const mergedIds = Object.values(state.merged).map((m) => m.libNoteId).filter((id) => id != null)
-    const ids = [...new Set([...[...selected.values()].flatMap((m) => m.candidates), ...mergedIds])]
+    // Possible duplicates' notes in other types are loaded too, for review's comparison.
+    const ids = [...new Set([...[...selected.values()].flatMap((m) => [...m.candidates, ...m.elsewhere]), ...mergedIds])]
     state.progress = `Loading ${ids.length} matched library notes…`
     const libNotes = await client.notesInfo(ids)
-    const ranked = rankCandidates({ pkg, matches: selected, libNotes, mapping: state.mapping, fieldMaps: state.fieldMaps, picks: state.picks })
+    const ranked = rankCandidates({ pkg, matches: selected, libNotes, fieldMaps: state.fieldMaps, picks: state.picks })
     const matches = mergedMatches(ranked, state.merged)
     for (const n of libNotes) state.libModelFields[n.modelName] ??= n.fieldOrder
     await loadModelFonts([...new Set(libNotes.map((n) => n.modelName))])
@@ -454,8 +461,12 @@ function classify(previous) {
   state.entries = entries
   // An acceptance only holds while the note is still a new note or an
   // auto-merge: one that now matches, now conflicts or is merged drops out.
+  // A possible duplicate is only added once its review says "Add as new".
   const optIn = new Set(
-    entries.filter((e) => (e.kind === 'new' || e.kind === 'auto') && !state.merged[e.guid]).map((e) => e.guid),
+    entries
+      .filter((e) => (e.kind === 'new' || e.kind === 'auto') && !state.merged[e.guid])
+      .filter((e) => !isDuplicate(e) || state.dupDecisions[e.guid] === 'add')
+      .map((e) => e.guid),
   )
   const kept = [...state.accepted].filter((guid) => optIn.has(guid))
   if (kept.length !== state.accepted.size) state.accepted = new Set(kept)
@@ -476,6 +487,50 @@ function pickCandidate(guid, libId) {
   classify(state.resolutions)
 }
 
+/** A new note whose main field (or GUID) already exists in another library note type. */
+const isDuplicate = (e) => e.kind === 'new' && e.elsewhere?.length > 0
+
+/**
+ * Decide a possible duplicate: 'add' it as a new note of its declared type,
+ * 'skip' it, 'merge' it into `libId` (one of its notes in another type), or
+ * null to make it undecided again. Merging re-classifies it against that note
+ * (no trip to Anki); an auto-merge is accepted with it, a conflict still needs
+ * accepting in its merge view.
+ */
+function decideDuplicate(guid, decision, libId = null) {
+  const m = state.matches?.get(guid)
+  if (!m?.elsewhere?.length) return
+  const picks = { ...state.picks }
+  const dupDecisions = { ...state.dupDecisions }
+  delete picks[guid]
+  delete dupDecisions[guid]
+  if (decision === 'merge') {
+    if (!m.elsewhere.includes(libId)) return
+    picks[guid] = libId
+  } else if (decision) {
+    dupDecisions[guid] = decision
+  }
+  const next = decision === 'merge' ? crossTypeMatch(m, libId) : uncrossMatch(m)
+  state.picks = picks
+  state.dupDecisions = dupDecisions
+  if (next.libId !== m.libId) {
+    const matches = new Map(state.matches)
+    matches.set(guid, next)
+    state.matches = markRaw(matches)
+    classify(state.resolutions)
+  }
+  const entry = state.entries.find((e) => e.guid === guid)
+  const accept = decision === 'add' || (decision === 'merge' && entry?.kind === 'auto')
+  setAccepted(guid, accept)
+}
+
+/** Decide every undecided possible duplicate at once ('add' or 'skip'). */
+function decideAllDuplicates(decision) {
+  for (const e of state.entries) {
+    if (isDuplicate(e) && !state.merged[e.guid] && !state.dupDecisions[e.guid]) decideDuplicate(e.guid, decision)
+  }
+}
+
 /** Show a library note in Anki's Browse window (close it again before applying). */
 async function openInAnki(noteId) {
   try {
@@ -485,9 +540,11 @@ async function openInAnki(noteId) {
   }
 }
 
-/** Guids of open (not yet merged) entries of a kind that can be accepted in bulk. */
+/** Guids of open (not yet merged) entries of a kind that can be accepted in bulk; possible duplicates are decided one by one. */
 function openGuids(kinds) {
-  return state.entries.filter((e) => kinds.includes(e.kind) && !state.merged[e.guid]).map((e) => e.guid)
+  return state.entries
+    .filter((e) => kinds.includes(e.kind) && !state.merged[e.guid] && !isDuplicate(e))
+    .map((e) => e.guid)
 }
 
 /** Accept every open entry of `kind` ('new' | 'auto'). */
@@ -622,12 +679,23 @@ function savedResolution(saved, entry) {
 const counts = computed(() => {
   const c = {
     new: 0, identical: 0, auto: 0, conflict: 0, merged: 0, ambiguous: 0, shared: 0, dropped: 0,
+    // Possible duplicates: undecided, and decided (added, skipped, or merged into another type).
+    duplicate: 0, duplicateDecided: 0,
     // Accepted per kind: ticked new notes and auto-merges, accepted conflicts.
     accepted: { new: 0, auto: 0, conflict: 0 },
   }
   for (const e of state.entries) {
     if (state.merged[e.guid]) {
       c.merged++
+      continue
+    }
+    if (e.crossType) {
+      c.duplicate++
+      c.duplicateDecided++
+    }
+    if (isDuplicate(e)) {
+      c.duplicate++
+      if (state.dupDecisions[e.guid]) c.duplicateDecided++
       continue
     }
     c[e.kind]++
@@ -674,6 +742,7 @@ const dryRun = computed(() =>
         excluded: skipped.value,
         accepted: state.accepted,
         merged: state.merged,
+        dupDecisions: state.dupDecisions,
         libDecks: state.libDecks,
         mapping: state.mapping,
         fieldMaps: fieldPairs.value.map((p) => ({
@@ -811,6 +880,8 @@ export function useMergeSession() {
     acceptAllWithoutConflict,
     setAccepted,
     pickCandidate,
+    decideDuplicate,
+    decideAllDuplicates,
     openInAnki,
     applyMerge,
     resolveMedia,

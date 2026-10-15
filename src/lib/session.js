@@ -36,6 +36,8 @@ export function buildSession({ state, settings, savedAt = new Date().toISOString
     decisions: Object.fromEntries(Object.entries(state.resolutions ?? {}).filter(([guid]) => !merged[guid])),
     // {guid: libraryNoteId}: which of several main-field candidates the user chose.
     picks: Object.fromEntries(Object.entries(state.picks ?? {}).filter(([guid]) => !merged[guid])),
+    // {guid: 'add' | 'skip'}: decisions on possible duplicates of notes in other types.
+    dupDecisions: Object.fromEntries(Object.entries(state.dupDecisions ?? {}).filter(([guid]) => !merged[guid])),
     // New notes and auto-merges the user accepted (merging is opt-in).
     accepted: [...(state.accepted ?? [])].filter((guid) => !merged[guid]),
     merged,
@@ -85,6 +87,7 @@ export function restoreSession(record, { pkg, libModels }) {
     newFields: config.newFields ?? {},
     resolutions: record.decisions ?? {},
     picks: record.picks ?? {},
+    dupDecisions: record.dupDecisions ?? {},
     // Records saved before merging became opt-in hold `excluded` (unticked)
     // instead; nothing in them was explicitly accepted, so they restore empty.
     accepted: new Set(record.accepted ?? []),

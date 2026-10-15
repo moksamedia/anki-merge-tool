@@ -223,4 +223,38 @@ describe('buildDryRun', () => {
     const r = report()
     expect(JSON.parse(JSON.stringify(r))).toEqual(r)
   })
+
+  it('reports possible duplicates: added with a warning, skipped, or undecided', () => {
+    const dup = (guid, tibetan) => ({
+      kind: 'new',
+      guid,
+      notetype,
+      target: { modelName: 'Vocab', create: true },
+      pkgFields: pkgFields(tibetan, 'x'),
+      pkgNote: { tags: [], deckId: 1 },
+      elsewhere: [{ id: 900, modelName: 'Text and Author' }],
+    })
+    const dups = [dup('dupAdd', 'ཀ'), dup('dupSkip', 'ཁ'), dup('dupOpen', 'ག')]
+    const accepted = new Set(['dupAdd'])
+    const plan = buildPlan({ pkg, entries: dups, resolutions: {}, excluded: new Set(), accepted, deckMode: 'package', targetDeck: 'X', mergeTag: '' })
+    const r = buildDryRun({
+      pkg,
+      pkgPath: '/tmp/Ocean.apkg',
+      settings: { mainField: 'Tibetan' },
+      entries: dups,
+      plan,
+      resolutions: {},
+      accepted,
+      dupDecisions: { dupAdd: 'add', dupSkip: 'skip' },
+      libDecks: [],
+      mapping: { 1: { modelName: 'Vocab', create: true } },
+    })
+    expect(r.summary.notesAdded).toBe(1)
+    expect(r.summary.duplicates).toEqual({ undecided: 1, skipped: 1 })
+    expect(Object.fromEntries(r.skipped.map((x) => [x.guid, x.reason]))).toEqual({
+      dupSkip: 'duplicate skipped',
+      dupOpen: 'duplicate undecided',
+    })
+    expect(r.warnings).toEqual([expect.objectContaining({ kind: 'duplicate', guid: 'dupAdd' })])
+  })
 })

@@ -21,8 +21,16 @@ const SKIP_REASON = {
   'not accepted': 'not accepted in review',
   'no change': 'accepted, but nothing differs',
   merged: 'already merged in an earlier run',
+  'duplicate undecided': 'possible duplicate, not decided',
+  'duplicate skipped': 'possible duplicate, not added',
 }
-const WARNING_LABEL = { ambiguous: 'Ambiguous match', shared: 'Shares a library note', dropped: 'Content not merged' }
+const WARNING_LABEL = {
+  ambiguous: 'Ambiguous match',
+  shared: 'Shares a library note',
+  dropped: 'Content not merged',
+  duplicate: 'Possible duplicate',
+  crossType: 'Other note type',
+}
 
 function flash(message) {
   notice.value = message
@@ -72,6 +80,8 @@ const tiles = computed(() => {
       value: s.notAccepted.new + s.notAccepted.auto,
       warn: s.notAccepted.new + s.notAccepted.auto > 0,
     },
+    { label: 'Duplicates undecided', value: s.duplicates.undecided, warn: s.duplicates.undecided > 0 },
+    { label: 'Duplicates not added', value: s.duplicates.skipped },
     { label: 'Already merged', value: s.alreadyMerged },
     { label: 'Already identical', value: s.unchanged },
     { label: 'Warnings', value: s.warnings, warn: s.warnings > 0 },
@@ -275,7 +285,7 @@ const generated = computed(() => new Date(r.value.generatedAt).toLocaleString())
         <tbody>
           <tr v-for="s in skipped.slice(0, limits.skipped)" :key="s.guid">
             <td>{{ s.label }}</td>
-            <td :class="{ 'warn-text': s.reason === 'undecided' }">{{ SKIP_REASON[s.reason] ?? s.reason }}</td>
+            <td :class="{ 'warn-text': s.reason === 'undecided' || s.reason === 'duplicate undecided' }">{{ SKIP_REASON[s.reason] ?? s.reason }}</td>
           </tr>
         </tbody>
       </table>

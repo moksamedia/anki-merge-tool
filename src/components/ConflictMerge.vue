@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { confirm } from '@tauri-apps/plugin-dialog'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { initialResolution } from '../lib/match.js'
-import { entryLabel, STATUS_LABEL } from '../lib/display.js'
+import { entryLabel, fieldsGlimpse, STATUS_LABEL } from '../lib/display.js'
 import { isManualEdit, takenSides, valueForSides } from '../lib/resultSides.js'
 import DiffText from './DiffText.vue'
 import FieldPreview from './FieldPreview.vue'
@@ -18,7 +18,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['prev', 'next'])
 
-const { state, settings, fieldFont, pickCandidate, openInAnki } = useMergeSession()
+const { state, settings, fieldFont, pickCandidate, decideDuplicate, openInAnki } = useMergeSession()
 const showSame = ref(false)
 
 const resolution = computed(() => state.resolutions[props.entry.guid])
@@ -83,20 +83,7 @@ const onSideMousedown = (e) => e.shiftKey && e.preventDefault()
 
 // Several library notes share this main field: list them so a wrong pick can be switched.
 const libById = computed(() => new Map(state.libNotes.map((n) => [n.id, n])))
-const plain = (html) =>
-  (html ?? '').replace(/\[sound:[^\]]*\]/g, '🔊').replace(/<img[^>]*>/gi, '🖼').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
-/** A one-line glimpse of a candidate: its non-empty fields after the main one. */
-function glimpse(id) {
-  const note = libById.value.get(id)
-  if (!note) return ''
-  const main = settings.mainField.toLowerCase()
-  const text = note.fieldOrder
-    .filter((name) => name.toLowerCase() !== main)
-    .map((name) => plain(note.fields[name]))
-    .filter(Boolean)
-    .join(' · ')
-  return text.length > 160 ? `${text.slice(0, 160)}…` : text || '(no other fields filled)'
-}
+const glimpse = (id) => fieldsGlimpse(libById.value.get(id)?.fields, settings.mainField)
 
 /** Switch to another candidate; asks first if this note's decision would be lost. */
 async function choose(id) {
@@ -151,7 +138,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <div>
         <h3>{{ entryLabel(entry, settings.mainField) }}</h3>
         <span class="badge">{{ entry.notetype.name }} → {{ entry.libNote.modelName }}</span>
-        <span class="badge">matched by {{ entry.matchedBy === 'guid' ? 'GUID' : 'main field' }}</span>
+        <span v-if="entry.crossType" class="badge warn">
+          merged into another note type by your choice
+          <button class="link small" title="Back to an undecided possible duplicate" @click="decideDuplicate(entry.guid, null)">undo</button>
+        </span>
+        <span v-else class="badge">matched by {{ entry.matchedBy === 'guid' ? 'GUID' : 'main field' }}</span>
         <span v-if="entry.ambiguous" class="badge warn">{{ entry.candidates.length }} library notes share this main field</span>
         <span v-if="entry.sharedWith.length" class="badge warn">
           {{ entry.sharedWith.length }} other package note{{ entry.sharedWith.length === 1 ? '' : 's' }} also match this
