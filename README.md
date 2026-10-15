@@ -54,7 +54,7 @@ The app picks up where you left off. It remembers the open package and step. On 
 7. **Apply:** writes the accepted notes — accepted conflicts, plus ticked auto-merges and new notes — that aren't merged yet. Approve some, merge, approve more, merge again: each run only writes the rest, and a half-finished run leaves what landed in the ledger and what failed still approved. One merge tag covers every run on the package.
    - Runs the backup first and stops if it fails.
    - Then creates the deck and note types, copies the media referenced by written notes, adds notes, updates fields and adds tags.
-   - Media: a library file with the same name but different content is never overwritten. Anki stores ours under a new name and the note fields are rewritten to match.
+   - Media: images and sounds referenced by written notes are copied, including `[_sound:…]`, a custom tag for sounds that shouldn't autoplay; the app plays and previews it like `[sound:…]`. A library file with the same name but different content is never overwritten. Anki stores ours under a new name and the note fields are rewritten to match.
    - Restore a backup with **File → Switch Profile → Open Backup** in Anki.
 
 ## Limitations

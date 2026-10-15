@@ -273,8 +273,8 @@ describe('merge tag helpers', () => {
 
 describe('applyRenames', () => {
   it('rewrites img and sound references only', () => {
-    const out = applyRenames({ f: '<img src="a.jpg"> a.jpg [sound:a.jpg]' }, { 'a.jpg': 'a-1.jpg' })
-    expect(out.f).toBe('<img src="a-1.jpg"> a.jpg [sound:a-1.jpg]')
+    const out = applyRenames({ f: '<img src="a.jpg"> a.jpg [sound:a.jpg] [_sound:a.jpg]' }, { 'a.jpg': 'a-1.jpg' })
+    expect(out.f).toBe('<img src="a-1.jpg"> a.jpg [sound:a-1.jpg] [_sound:a-1.jpg]')
     const spaced = applyRenames({ f: '<img src="my pic.jpg">' }, { 'my pic.jpg': 'my pic-1.jpg' })
     expect(spaced.f).toBe('<img src="my pic-1.jpg">')
   })

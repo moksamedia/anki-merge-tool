@@ -33,7 +33,7 @@ export function matchKey(value) {
     .toLowerCase()
 }
 
-const isEmpty = (value) => matchKey(value) === '' && !/<img|\[sound:/i.test(value ?? '')
+const isEmpty = (value) => matchKey(value) === '' && !/<img|\[_?sound:/i.test(value ?? '')
 
 /** Package note fields as {name: value} using its notetype's field order. */
 export function namedFields(note, notetype) {
@@ -366,14 +366,17 @@ export function initialResolution(entry) {
   }
 }
 
-/** Collect media filenames referenced by field HTML: <img src>, [sound:], etc. */
+/**
+ * Collect media filenames referenced by field HTML: <img src>, [sound:], etc.
+ * `[_sound:x]` counts too: a custom tag for sounds that Anki shouldn't autoplay.
+ */
 export function mediaReferences(html) {
   const names = new Set()
   // Quoted src values may contain spaces; unquoted ones end at whitespace or '>'.
   for (const m of (html ?? '').matchAll(/\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
     names.add(m[1] ?? m[2] ?? m[3])
   }
-  for (const m of (html ?? '').matchAll(/\[sound:([^\]]+)\]/g)) names.add(m[1])
+  for (const m of (html ?? '').matchAll(/\[_?sound:([^\]]+)\]/g)) names.add(m[1])
   return [...names]
     .filter((n) => !/^(https?:|data:|blob:)/i.test(n))
     .map((n) => {

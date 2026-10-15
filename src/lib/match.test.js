@@ -332,4 +332,13 @@ describe('mediaReferences', () => {
     const html = '<img src="a b.jpg"><img src=\'c.png\'>[sound:d.mp3]<img src="https://x/y.png">'
     expect(mediaReferences(html).sort()).toEqual(['a b.jpg', 'c.png', 'd.mp3'])
   })
+
+  it('finds [_sound:] references, the no-autoplay tag', () => {
+    expect(mediaReferences('[_sound:riklam_32-07.mp3] [sound:b.mp3]').sort()).toEqual(['b.mp3', 'riklam_32-07.mp3'])
+  })
+
+  it('counts a field holding only a [_sound:] reference as content', () => {
+    const { fields } = compareFields({ Tibetan: 'ཀ', English: '', Notes: '[_sound:n.mp3]' }, libNote(1, ['ཀ', '', '']))
+    expect(fields.find((f) => f.name === 'Notes').status).toBe('fill')
+  })
 })

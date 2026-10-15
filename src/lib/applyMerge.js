@@ -155,6 +155,7 @@ export function applyRenames(fields, renames) {
         out = out
           .replace(new RegExp(`(src\\s*=\\s*["']?)${escapeRegExp(from)}(?=["'\\s>])`, 'g'), `$1${to}`)
           .replaceAll(`[sound:${from}]`, `[sound:${to}]`)
+          .replaceAll(`[_sound:${from}]`, `[_sound:${to}]`)
       }
       return [name, out]
     }),

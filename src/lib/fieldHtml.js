@@ -17,7 +17,7 @@ export const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 export async function prepareFieldHtml(html, source, resolveMedia, { sounds = 'player', missing = 'placeholder' } = {}) {
   const withSounds =
     sounds === 'player'
-      ? (html ?? '').replace(/\[sound:([^\]]+)\]/g, (_, name) => `<span class="sound" data-name="${escapeHtml(name)}">🔊 ${escapeHtml(name)}</span>`)
+      ? (html ?? '').replace(/\[_?sound:([^\]]+)\]/g, (_, name) => `<span class="sound" data-name="${escapeHtml(name)}">🔊 ${escapeHtml(name)}</span>`)
       : (html ?? '')
   const doc = new DOMParser().parseFromString(DOMPurify.sanitize(withSounds), 'text/html')
 

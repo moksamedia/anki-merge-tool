@@ -13,7 +13,7 @@ export function fieldsGlimpse(fields, preferredMainField, max = 160) {
   const text = Object.entries(fields ?? {})
     .filter(([name]) => name.toLowerCase() !== main)
     .map(([, html]) =>
-      plainText((html ?? '').replace(/\[sound:[^\]]*\]/g, ' ').replace(/<img[^>]*>/gi, ' ')).replace(
+      plainText((html ?? '').replace(/\[_?sound:[^\]]*\]/g, ' ').replace(/<img[^>]*>/gi, ' ')).replace(
         /\bhttps?:\/\/([^/\s]+)\S*/gi,
         (_, host) => `${host.replace(/^www\./, '')} ↗`,
       ),
@@ -21,7 +21,7 @@ export function fieldsGlimpse(fields, preferredMainField, max = 160) {
     .filter(Boolean)
     .join(' · ')
   if (!text) {
-    const hasMedia = Object.values(fields ?? {}).some((html) => /\[sound:|<img/i.test(html ?? ''))
+    const hasMedia = Object.values(fields ?? {}).some((html) => /\[_?sound:|<img/i.test(html ?? ''))
     return hasMedia ? '' : '(no other fields filled)'
   }
   return text.length > max ? `${text.slice(0, max)}…` : text
