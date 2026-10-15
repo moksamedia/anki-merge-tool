@@ -1,12 +1,10 @@
 <script setup>
 import { computed } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
-import { mainFieldName } from '../lib/match.js'
-import { pairKey, unmappedFields } from '../lib/fieldMap.js'
 import { sanitizeTag } from '../lib/applyMerge.js'
 
 const emit = defineEmits(['done'])
-const { settings, state, fieldMapOf, libFieldsOf, fieldPairs, setNoteTypeTarget, runAnalysis } = useMergeSession()
+const { settings, state, runAnalysis } = useMergeSession()
 
 // Only note types that actually have notes in the package need a target.
 const usedTypes = computed(() => {
@@ -16,38 +14,6 @@ const usedTypes = computed(() => {
 
 const allFieldNames = computed(() => [...new Set(usedTypes.value.flatMap((nt) => nt.fields))])
 
-function targetValue(nt) {
-  const m = state.mapping[nt.id]
-  return m.create ? '__create__' : m.modelName
-}
-
-function setTarget(nt, value) {
-  return setNoteTypeTarget(
-    nt,
-    value === '__create__' ? { modelName: createName(nt), create: true } : { modelName: value, create: false },
-  )
-}
-
-/** A free name for a new note type: the package name, suffixed if taken. */
-function createName(nt) {
-  let name = nt.name
-  for (let i = 2; state.libModels.includes(name); i++) name = `${nt.name} (${i})`
-  return name
-}
-
-/** Per row: the field the type matches on, and which package fields its new notes leave out. */
-const rows = computed(() =>
-  usedTypes.value.map((nt) => {
-    const m = state.mapping[nt.id]
-    if (m.create) return { nt, unmapped: [], main: mainFieldName(nt.fields, settings.mainField) }
-    const libFields = libFieldsOf(m.modelName)
-    const pair = { key: pairKey(nt.id, m.modelName), notetype: nt, modelName: m.modelName, libFields }
-    return { nt, unmapped: unmappedFields(nt.fields, fieldMapOf(pair)), main: mainFieldName(libFields, settings.mainField) }
-  }),
-)
-
-const createNameTaken = (nt) => state.mapping[nt.id].create && state.libModels.includes(state.mapping[nt.id].modelName)
-
 const mergeTagPreview = computed(() => sanitizeTag(state.mergeTag))
 
 const pkgDeckCount = computed(() => new Set(state.pkg.notes.map((n) => n.deckId)).size)
@@ -56,14 +22,14 @@ const newDecks = computed(() => {
   return state.pkg.decks.filter((d) => used.has(d.id) && !state.libDecks.includes(d.name)).map((d) => d.name)
 })
 
-const canAnalyze = computed(
-  () => (state.deckMode === 'package' || state.targetDeck.trim()) && !usedTypes.value.some(createNameTaken),
-)
+const canAnalyze = computed(() => state.deckMode === 'package' || state.targetDeck.trim())
 
-// Field maps come after analysis, once it's known which library note types the notes go through.
+// Note types and field maps come after analysis, once it's known which library
+// note types the notes go through. Until then each type maps to its remembered
+// or same-named library type, or a new one.
 async function analyze() {
   await runAnalysis()
-  if (state.entries.length && !state.error) emit('done', { needsFields: fieldPairs.value.length > 0 })
+  if (state.entries.length && !state.error) emit('done')
 }
 </script>
 
@@ -135,34 +101,6 @@ async function analyze() {
           with <code>tag:{{ mergeTagPreview || '…' }}</code>. Untouched notes don't get it. Leave blank for no tag.
         </p>
       </div>
-    </div>
-
-    <div class="card">
-      <h3>Note types</h3>
-      <table class="plain">
-        <thead><tr><th>Package note type</th><th>Library note type</th><th>Fields</th></tr></thead>
-        <tbody>
-          <tr v-for="{ nt, unmapped, main } in rows" :key="nt.id">
-            <td>{{ nt.name }}</td>
-            <td>
-              <select :value="targetValue(nt)" @change="setTarget(nt, $event.target.value)">
-                <option value="__create__">Create new note type</option>
-                <option v-for="m in state.libModels" :key="m" :value="m">{{ m }}</option>
-              </select>
-              <input v-if="state.mapping[nt.id].create" v-model.trim="state.mapping[nt.id].modelName" class="inline" />
-              <span v-if="createNameTaken(nt)" class="warn-text small">name already exists</span>
-            </td>
-            <td class="small">
-              <span>matching on <b>{{ main }}</b></span>
-              <span v-if="unmapped.length" class="warn-text"> · not imported: {{ unmapped.join(', ') }}</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p class="muted small">
-        Field maps are set after analysis, once it's known which library note types the notes match: these targets, and
-        any other type a package note already exists under.
-      </p>
     </div>
 
     <button class="primary" :disabled="state.busy || !canAnalyze" @click="analyze">Analyze against library</button>

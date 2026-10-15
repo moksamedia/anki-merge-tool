@@ -17,7 +17,7 @@ const steps = computed(() => [
   { id: 'connect', label: 'Connect', enabled: true },
   { id: 'package', label: 'Package', enabled: connected.value },
   { id: 'configure', label: 'Configure', enabled: connected.value && !!state.pkg },
-  { id: 'fields', label: 'Fields', enabled: state.entries.length > 0 },
+  { id: 'fields', label: 'Note types', enabled: state.entries.length > 0 },
   { id: 'review', label: 'Review', enabled: state.entries.length > 0 },
   { id: 'preview', label: 'Preview', enabled: state.entries.length > 0 },
   { id: 'apply', label: 'Apply', enabled: state.entries.length > 0 },
@@ -49,7 +49,7 @@ const steps = computed(() => [
       Next →
     </button>
     <PackageStep v-else-if="step === 'package'" @done="step = 'configure'" @resume="step = 'review'" />
-    <ConfigureStep v-else-if="step === 'configure'" @done="(r) => (step = r?.needsFields ? 'fields' : 'review')" />
+    <ConfigureStep v-else-if="step === 'configure'" @done="step = 'fields'" />
     <FieldsStep v-else-if="step === 'fields'" @done="step = 'review'" />
     <ReviewStep v-else-if="step === 'review'" @done="step = 'preview'" @fields="step = 'fields'" />
     <PreviewStep v-else-if="step === 'preview'" @done="step = 'apply'" @back="step = 'review'" />

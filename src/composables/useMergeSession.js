@@ -2,7 +2,7 @@ import { computed, markRaw, reactive, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open, save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { createAnkiClient } from '../lib/ankiClient.js'
-import { analyze, initialResolution, libraryFingerprint, rankCandidates, selectMatches } from '../lib/match.js'
+import { analyze, initialResolution, libraryFingerprint, namedFields, rankCandidates, selectMatches } from '../lib/match.js'
 import { buildPlan, createReport, defaultMergeTag, executePlan } from '../lib/applyMerge.js'
 import { buildDryRun } from '../lib/dryRun.js'
 import { defaultFieldMap, needsFieldMap, pairKey, reconcileFieldMap, savedPairKey, withNewFields } from '../lib/fieldMap.js'
@@ -560,12 +560,13 @@ function rememberFieldMap(pair) {
 }
 
 /**
- * Pairs whose note types don't line up — the ones the Fields step lists. Exact,
- * because they come from the analysis: each package type's Configure target
- * (where its new notes go) and every library type its notes matched into.
- * Configure targets come first, in package order; then the rest, most matched first.
+ * Every (package type, library type) pair the merge writes through, from the
+ * analysis: each package type's target (where its new notes go) and every
+ * library type its notes matched into. `needsMap` marks pairs that don't line
+ * up by field name. Targets come first, in package order; then the rest, most
+ * matched first.
  */
-const fieldPairs = computed(() => {
+const allFieldPairs = computed(() => {
   const pairs = new Map()
   for (const e of state.entries) {
     // New notes follow the current Configure choice, even if it changed after analysis.
@@ -576,21 +577,33 @@ const fieldPairs = computed(() => {
     if (!pairs.has(key)) {
       const libFields = libFieldsOf(modelName)
       const configured = !target.create && target.modelName === modelName
-      pairs.set(key, { key, notetype: e.notetype, modelName, libFields, configured, matched: 0, added: 0, samples: [] })
+      const needsMap = needsFieldMap(e.notetype, modelName, libFields)
+      pairs.set(key, { key, notetype: e.notetype, modelName, libFields, configured, needsMap, matched: 0, added: 0, samples: [] })
     }
     const pair = pairs.get(key)
     pair[e.libNote ? 'matched' : 'added']++
     if (pair.samples.length < 20) pair.samples.push(e.pkgFields)
   }
   const order = new Map((state.pkg?.notetypes ?? []).map((nt, i) => [nt.id, i]))
-  return [...pairs.values()]
-    .filter((p) => needsFieldMap(p.notetype, p.modelName, p.libFields))
-    .sort(
+  return [...pairs.values()].sort(
       (a, b) =>
         b.configured - a.configured ||
         (a.configured ? order.get(a.notetype.id) - order.get(b.notetype.id) : b.matched - a.matched),
     )
 })
+
+/** Pairs that don't line up by field name: the ones worth a look (and the dry run's record). */
+const fieldPairs = computed(() => allFieldPairs.value.filter((p) => p.needsMap))
+
+/** Up to 20 package notes of a type as {field: value}, for a field map's example column. */
+function pkgSamples(notetypeId) {
+  const nt = state.pkg?.notetypes.find((t) => t.id === notetypeId)
+  if (!nt) return []
+  return state.pkg.notes
+    .filter((n) => n.notetypeId === notetypeId)
+    .slice(0, 20)
+    .map((n) => namedFields(n, nt))
+}
 
 /** Reuse a saved decision only if the library note it was made against is unchanged. */
 function savedResolution(saved, entry) {
@@ -777,6 +790,8 @@ export function useMergeSession() {
     copyDryRun,
     saveDryRun,
     fieldPairs,
+    allFieldPairs,
+    pkgSamples,
     fieldMapOf,
     libFieldsOf,
     setFieldMap,

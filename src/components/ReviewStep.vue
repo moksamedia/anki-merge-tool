@@ -101,11 +101,14 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
     </p>
     <p v-if="counts.dropped" class="warn-text small">
       {{ counts.dropped }} matched note(s) have package content in fields not mapped to their library note type; that
-      content is not merged (each note's merge view lists the fields; map them in the Fields step).
+      content is not merged (each note's merge view lists the fields; map them on the Note types step).
     </p>
 
-    <p v-if="fieldPairs.length" class="small">
-      Field mapping: {{ fieldPairs.length }} note type pair{{ fieldPairs.length === 1 ? '' : 's' }} ·
+    <p class="small">
+      Note types and fields ·
+      <span v-if="fieldPairs.length" class="muted">
+        {{ fieldPairs.length }} pair{{ fieldPairs.length === 1 ? '' : 's' }} don't line up by name ·
+      </span>
       <button class="link" @click="emit('fields')">edit</button>
     </p>
 
