@@ -5,6 +5,7 @@ import { useMergeSession } from '../composables/useMergeSession.js'
 import { initialResolution } from '../lib/match.js'
 import { entryLabel, fieldsGlimpse, STATUS_LABEL } from '../lib/display.js'
 import { isManualEdit, takenSides, valueForSides } from '../lib/resultSides.js'
+import { pairKey } from '../lib/fieldMap.js'
 import DiffText from './DiffText.vue'
 import FieldPreview from './FieldPreview.vue'
 import MediaStrip from './MediaStrip.vue'
@@ -16,7 +17,7 @@ const props = defineProps({
   index: { type: Number, required: true },
   total: { type: Number, required: true },
 })
-const emit = defineEmits(['prev', 'next'])
+const emit = defineEmits(['prev', 'next', 'fields'])
 
 const { state, settings, fieldFont, pickCandidate, decideDuplicate, openInAnki } = useMergeSession()
 const showSame = ref(false)
@@ -141,6 +142,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         <span v-if="entry.crossType" class="badge warn">
           merged into another note type by your choice
           <button class="link small" title="Back to an undecided possible duplicate" @click="decideDuplicate(entry.guid, null)">undo</button>
+          ·
+          <button
+            class="link small"
+            title="This merge pairs the package note type with a library type it isn't mapped to"
+            @click="emit('fields', pairKey(entry.notetype.id, entry.libNote.modelName))"
+          >
+            check field mapping
+          </button>
         </span>
         <span v-else class="badge">matched by {{ entry.matchedBy === 'guid' ? 'GUID' : 'main field' }}</span>
         <span v-if="entry.ambiguous" class="badge warn">{{ entry.candidates.length }} library notes share this main field</span>

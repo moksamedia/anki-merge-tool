@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { entryLabel, summaryFields } from '../lib/display.js'
+import { pairKey } from '../lib/fieldMap.js'
 import ConflictMerge from './ConflictMerge.vue'
 import MediaStrip from './MediaStrip.vue'
 import MergedNote from './MergedNote.vue'
@@ -12,6 +13,7 @@ const {
   settings,
   counts,
   fieldPairs,
+  crossTypePairs,
   pkgDeckName,
   acceptAll,
   clearAll,
@@ -55,6 +57,9 @@ const libById = computed(() => new Map(state.libNotes.map((n) => [n.id, n])))
 const othersOf = (e) =>
   (state.matches?.get(e.guid)?.elsewhere ?? []).map((id) => libById.value.get(id)).filter(Boolean)
 const fieldLines = (fields) => summaryFields(fields, settings.mainField)
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+// Open Note types at the pair a cross-type merge goes through.
+const checkPair = (e) => emit('fields', pairKey(e.notetype.id, e.libNote.modelName))
 // All of a note's field HTML, for MediaStrip to find its images and sounds.
 const mediaHtml = (fields) => Object.values(fields ?? {}).join(' ')
 const mergedEntries = computed(() =>
@@ -144,6 +149,23 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
       content is not merged (each note's merge view lists the fields; map them on the Note types step).
     </p>
 
+    <div v-if="crossTypePairs.length" class="card pairings">
+      <p class="small">
+        <b class="warn-text">New note type pairings.</b> Merging possible duplicates into notes of another type paired these
+        package note types with library types they aren't mapped to. Their fields pair by name until you change them, so
+        check each field mapping.
+      </p>
+      <ul class="small">
+        <li v-for="p in crossTypePairs" :key="p.key">
+          <b>{{ p.notetype.name }} → {{ p.modelName }}</b>
+          <span class="muted"> · {{ plural(p.matched, 'note') }}</span>
+          <span v-if="p.unmapped.length" class="warn-text"> · {{ plural(p.unmapped.length, 'package field') }} not imported</span>
+          <span v-else class="ok-text"> · every package field has a home</span>
+          · <button class="link" @click="emit('fields', p.key)">Check field mapping →</button>
+        </li>
+      </ul>
+    </div>
+
     <p class="small">
       Note types and fields ·
       <span v-if="fieldPairs.length" class="muted">
@@ -173,6 +195,7 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
           :total="conflicts.length"
           @prev="move(-1)"
           @next="move(1)"
+          @fields="emit('fields', $event)"
         />
       </div>
     </div>
@@ -269,6 +292,7 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
                 <button class="link small" @click="openInAnki(n.id)">Open in Anki</button>
                 <span v-if="e.crossType && e.libNote.id === n.id" class="small ok-text">
                   · merging into this note ({{ e.kind === 'conflict' ? 'accept it under Conflicts' : e.kind === 'auto' ? 'accepted under Auto-merges' : 'nothing differs' }})
+                  · <button class="link small" @click="checkPair(e)">check the {{ e.notetype.name }} → {{ n.modelName }} field mapping</button>
                 </span>
                 <button v-else class="link small" @click="decideDuplicate(e.guid, 'merge', n.id)">· Merge into this note</button>
               </div>
@@ -316,6 +340,9 @@ table.dups td { vertical-align: top; }
 .dups .other + .other { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .dups .other.on { background: var(--fill-bg); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 6px; padding: 4px 6px; }
 .decide { white-space: nowrap; }
+.pairings { border-color: var(--warn); }
+.pairings p { margin: 0 0 6px; }
+.pairings ul { margin: 0; padding-left: 18px; }
 .field-lines { margin: 4px 0 0; }
 .field-lines dt { display: inline; font-weight: 600; color: var(--muted); }
 .field-lines dt::after { content: ': '; }

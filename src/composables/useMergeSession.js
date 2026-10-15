@@ -5,7 +5,7 @@ import { createAnkiClient } from '../lib/ankiClient.js'
 import { analyze, crossTypeMatch, initialResolution, libraryFingerprint, namedFields, rankCandidates, selectMatches, uncrossMatch } from '../lib/match.js'
 import { buildPlan, createReport, defaultMergeTag, executePlan } from '../lib/applyMerge.js'
 import { buildDryRun } from '../lib/dryRun.js'
-import { defaultFieldMap, needsFieldMap, pairKey, reconcileFieldMap, savedPairKey, withNewFields } from '../lib/fieldMap.js'
+import { defaultFieldMap, needsFieldMap, pairKey, reconcileFieldMap, savedPairKey, unmappedFields, withNewFields } from '../lib/fieldMap.js'
 import { buildSession, mergedFromRun, mergedMatches, parseSession, restoreSession, sessionPath, sessionSummary } from '../lib/session.js'
 
 const DEFAULT_SETTINGS = {
@@ -656,6 +656,18 @@ const allFieldPairs = computed(() => {
     )
 })
 
+/**
+ * Pairs that exist only because a possible duplicate was merged into a note of
+ * another type: a package type meeting a library type it isn't mapped to.
+ * Their fields pair by name until checked on Note types, so Review points at
+ * them. Each carries `unmapped`, the package fields it leaves out.
+ */
+const crossTypePairs = computed(() =>
+  allFieldPairs.value
+    .filter((p) => !p.configured)
+    .map((p) => ({ ...p, unmapped: unmappedFields(p.notetype.fields, fieldMapOf(p)) })),
+)
+
 /** Pairs that don't line up by field name: the ones worth a look (and the dry run's record). */
 const fieldPairs = computed(() => allFieldPairs.value.filter((p) => p.needsMap))
 
@@ -867,6 +879,7 @@ export function useMergeSession() {
     saveDryRun,
     fieldPairs,
     allFieldPairs,
+    crossTypePairs,
     pkgSamples,
     fieldMapOf,
     libFieldsOf,

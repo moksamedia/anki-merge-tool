@@ -11,6 +11,12 @@ import ApplyStep from './components/ApplyStep.vue'
 
 const { state, checkConnection, openPackage, runAnalysis } = useMergeSession()
 const step = ref('connect')
+// A field-map pair for Note types to open and scroll to (from Review's "check field mapping").
+const focusPair = ref(null)
+const openFields = (key = null) => {
+  focusPair.value = typeof key === 'string' ? key : null
+  step.value = 'fields'
+}
 
 const connected = computed(() => state.connection.anki?.ok && state.connection.bridge?.ok)
 const steps = computed(() => [
@@ -132,8 +138,8 @@ onMounted(() => {
     </button>
     <PackageStep v-else-if="step === 'package'" @done="step = 'configure'" @resume="step = 'review'" />
     <ConfigureStep v-else-if="step === 'configure'" @done="step = 'fields'" />
-    <FieldsStep v-else-if="step === 'fields'" @done="step = 'review'" />
-    <ReviewStep v-else-if="step === 'review'" @done="step = 'preview'" @fields="step = 'fields'" />
+    <FieldsStep v-else-if="step === 'fields'" :focus="focusPair" @done="step = 'review'" />
+    <ReviewStep v-else-if="step === 'review'" @done="step = 'preview'" @fields="openFields" />
     <PreviewStep v-else-if="step === 'preview'" @done="step = 'apply'" @back="step = 'review'" />
     <ApplyStep v-else-if="step === 'apply'" @preview="step = 'preview'" />
   </main>

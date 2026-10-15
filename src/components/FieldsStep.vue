@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { mainFieldName } from '../lib/match.js'
 import { needsFieldMap, pairKey, savedPairKey, unmappedFields } from '../lib/fieldMap.js'
@@ -10,6 +10,8 @@ import FieldMapTable from './FieldMapTable.vue'
 // it (changing one re-analyzes). Below, the field map of each pair, then of any
 // other type a possible duplicate was merged into by the user's choice.
 const emit = defineEmits(['done'])
+// focus: a pair key to open, scroll to and highlight (from Review's "check field mapping").
+const props = defineProps({ focus: { type: String, default: null } })
 const { state, settings, allFieldPairs, fieldMapOf, libFieldsOf, pkgSamples, setNoteTypeTarget, runAnalysis } =
   useMergeSession()
 
@@ -93,6 +95,17 @@ function onToggle(pair, open) {
   settings.openFieldPairs = open ? [...settings.openFieldPairs, key] : settings.openFieldPairs.filter((k) => k !== key)
 }
 
+const focused = ref(null)
+onMounted(async () => {
+  const pair = [...targetPairs.value, ...otherPairs.value].find((p) => p.key === props.focus)
+  if (!pair) return
+  onToggle(pair, true)
+  focused.value = pair.key
+  await nextTick()
+  document.querySelector(`details.pair[data-key="${CSS.escape(pair.key)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  setTimeout(() => (focused.value = null), 2500)
+})
+
 const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
 const unmappedOf = (pair) => unmappedFields(pair.notetype.fields, fieldMapOf(pair))
 const pairCounts = (pair) =>
@@ -142,7 +155,13 @@ const pairCounts = (pair) =>
         Which package field fills each library field. Same-named fields are paired automatically; choices are remembered,
         and Review updates as you change them. Click a pair to open it.
       </p>
-      <details v-for="pair in targetPairs" :key="pair.key" class="pair" :open="isOpen(pair)" @toggle="onToggle(pair, $event.target.open)">
+      <details
+        v-for="pair in targetPairs" :key="pair.key" class="pair"
+        :class="{ focus: focused === pair.key }"
+        :data-key="pair.key"
+        :open="isOpen(pair)"
+        @toggle="onToggle(pair, $event.target.open)"
+      >
         <summary class="map-head">
           <h4>{{ pair.notetype.name }} <span class="muted">→</span> {{ pair.modelName }}</h4>
           <span class="muted small">{{ pairCounts(pair) }}</span>
@@ -159,10 +178,17 @@ const pairCounts = (pair) =>
       <template v-if="otherPairs.length">
         <h4 class="others">Merged into other note types</h4>
         <p class="muted small">
-          Possible duplicates you chose, in Review, to merge into an existing note of another type. Those notes stay in their
-          type; they're compared and filled through these maps.
+          Pairings created by merging possible duplicates, in Review, into existing notes of another type. Those notes stay
+          in their type and are compared and filled through these maps. Fields pair by name until you change them, so check
+          that each package field lands where it should.
         </p>
-        <details v-for="pair in otherPairs" :key="pair.key" class="pair" :open="isOpen(pair)" @toggle="onToggle(pair, $event.target.open)">
+        <details
+          v-for="pair in otherPairs" :key="pair.key" class="pair"
+          :class="{ focus: focused === pair.key }"
+          :data-key="pair.key"
+          :open="isOpen(pair)"
+          @toggle="onToggle(pair, $event.target.open)"
+        >
           <summary class="map-head">
             <h4>{{ pair.notetype.name }} <span class="muted">→</span> {{ pair.modelName }}</h4>
             <span class="muted small">{{ pairCounts(pair) }}</span>
@@ -187,5 +213,6 @@ summary.map-head::-webkit-details-marker { display: none; }
 summary.map-head h4::before { content: '▸'; display: inline-block; width: 1em; color: var(--muted); }
 details[open] > summary.map-head h4::before { content: '▾'; }
 details[open] > summary.map-head { margin-bottom: 8px; }
-details.pair { margin-top: 8px; }
+details.pair { margin-top: 8px; transition: box-shadow 0.4s, background 0.4s; border-radius: 6px; }
+details.pair.focus { background: var(--fill-bg); box-shadow: 0 0 0 2px var(--accent); }
 </style>
