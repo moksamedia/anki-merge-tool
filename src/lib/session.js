@@ -34,6 +34,8 @@ export function buildSession({ state, settings, savedAt = new Date().toISOString
       newFields: state.newFields,
     },
     decisions: Object.fromEntries(Object.entries(state.resolutions ?? {}).filter(([guid]) => !merged[guid])),
+    // {guid: libraryNoteId}: which of several main-field candidates the user chose.
+    picks: Object.fromEntries(Object.entries(state.picks ?? {}).filter(([guid]) => !merged[guid])),
     // New notes and auto-merges the user accepted (merging is opt-in).
     accepted: [...(state.accepted ?? [])].filter((guid) => !merged[guid]),
     merged,
@@ -82,6 +84,7 @@ export function restoreSession(record, { pkg, libModels }) {
     fieldMaps: config.fieldMaps ?? {},
     newFields: config.newFields ?? {},
     resolutions: record.decisions ?? {},
+    picks: record.picks ?? {},
     // Records saved before merging became opt-in hold `excluded` (unticked)
     // instead; nothing in them was explicitly accepted, so they restore empty.
     accepted: new Set(record.accepted ?? []),
@@ -204,7 +207,7 @@ export function mergedFromRun({ plan, report, entries, at = new Date().toISOStri
 export function mergedMatches(matches, merged) {
   const out = new Map(matches)
   for (const [guid, m] of Object.entries(merged ?? {})) {
-    if (m.libNoteId != null) out.set(guid, { libId: m.libNoteId, matchedBy: 'merged', candidates: 1 })
+    if (m.libNoteId != null) out.set(guid, { libId: m.libNoteId, matchedBy: 'merged', candidates: [m.libNoteId] })
   }
   return out
 }

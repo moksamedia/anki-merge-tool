@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { pairKey } from './fieldMap.js'
-import { analyze, compareFields, initialResolution, libraryFingerprint, matchKey, mediaReferences, selectMatches, toRecord } from './match.js'
+import { analyze, compareFields, initialResolution, libraryFingerprint, matchKey, mediaReferences, rankCandidates, selectMatches, toRecord } from './match.js'
 
 const notetype = { id: 1, name: 'Tibetan Vocab', fields: ['Tibetan', 'English', 'Notes'], templates: [] }
 
@@ -16,12 +16,13 @@ const libNote = (id, fields, tags = [], modelName = 'Tibetan Vocab', fieldOrder 
 
 const DEFAULT_MAPPING = { 1: { modelName: 'Tibetan Vocab', create: false } }
 
-// Mirrors runAnalysis: phase 1 on lightweight records, phase 2 on full notes.
-function run(notes, libNotes, guidMap = {}, mapping = DEFAULT_MAPPING, extra = {}, notetypes = [notetype], phase2 = {}) {
+// Mirrors runAnalysis: phase 1 on lightweight records, ranking and phase 2 on full notes.
+function run(notes, libNotes, guidMap = {}, mapping = DEFAULT_MAPPING, extra = {}, notetypes = [notetype], phase2 = {}, picks = {}) {
   const settings = { mainField: 'tibetan', autoFillEmpty: true, ...extra }
   const pkg = { notetypes, notes, media: [] }
   const records = libNotes.map((n) => toRecord(n, settings.mainField))
-  const matches = selectMatches({ pkg, guidMap, records, mapping, settings })
+  const selected = selectMatches({ pkg, guidMap, records, mapping, settings })
+  const matches = rankCandidates({ pkg, matches: selected, libNotes, mapping, fieldMaps: phase2.fieldMaps, picks })
   return analyze({ pkg, matches, libNotes, mapping, settings, ...phase2 })
 }
 
@@ -93,6 +94,63 @@ describe('analyze', () => {
   it('flags ambiguous main-field matches', () => {
     const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [libNote(1, ['ཀ', 'ka', '']), libNote(2, ['ཀ', 'ka', ''])])
     expect(r.ambiguous).toBe(true)
+  })
+
+  it('prefers a filled library note over an empty stub with the same main field', () => {
+    const stub = libNote(1, ['རྗེན་པ་', '', ''])
+    const full = libNote(2, ['རྗེན་པ་', 'raw, uncooked', 'note'])
+    const [r] = run([pkgNote('g', ['རྗེན་པ་', 'Raw', ''])], [stub, full])
+    expect(r.libNote.id).toBe(2)
+    expect(r.candidates.map((c) => c.id)).toEqual([2, 1])
+    expect(r.candidates[0]).toMatchObject({ same: 1, filled: 3 })
+  })
+
+  it('prefers the candidate with the most fields in common', () => {
+    const a = libNote(1, ['ཀ', 'other', 'long note here'])
+    const b = libNote(2, ['ཀ', 'ka', ''])
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', 'x'])], [a, b])
+    expect(r.libNote.id).toBe(2)
+  })
+
+  it('prefers the mapped note type over a fuller note of another type', () => {
+    const other = libNote(7, ['ཀ', 'x', 'y'], [], 'Debate', ['Tibetan', 'English', 'Notes'])
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [other, libNote(8, ['ཀ', 'kha', ''])])
+    expect(r.libNote.id).toBe(8)
+  })
+
+  it('prefers a filled note of another type over an empty stub in the mapped type', () => {
+    const other = libNote(7, ['ཀ', 'x', ''], [], 'Debate', ['Tibetan', 'English', 'Notes'])
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], [libNote(8, ['ཀ', '', '']), other])
+    expect(r.libNote.id).toBe(7)
+  })
+
+  it('sends an ambiguous match that would write to conflicts', () => {
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', 'new note'])], [libNote(1, ['ཀ', 'ka', '']), libNote(2, ['ཀ', '', ''])])
+    expect(r.libNote.id).toBe(1)
+    expect(r.fields.every((f) => f.status !== 'conflict')).toBe(true)
+    expect(r.kind).toBe('conflict')
+  })
+
+  it('uses the candidate the user picked, while it is still a candidate', () => {
+    const libs = [libNote(1, ['ཀ', 'ka', '']), libNote(2, ['ཀ', '', ''])]
+    const [r] = run([pkgNote('g', ['ཀ', 'ka', ''])], libs, {}, DEFAULT_MAPPING, {}, [notetype], {}, { g: 2 })
+    expect(r.libNote.id).toBe(2)
+    expect(r.picked).toBe(true)
+    const [stale] = run([pkgNote('g', ['ཀ', 'ka', ''])], libs, {}, DEFAULT_MAPPING, {}, [notetype], {}, { g: 99 })
+    expect(stale.libNote.id).toBe(1)
+    expect(stale.picked).toBe(false)
+  })
+
+  it('drops candidates that left the library between phases', () => {
+    const pkg = { notetypes: [notetype], notes: [pkgNote('g', ['ཀ', 'ka', ''])], media: [] }
+    const settings = { mainField: 'tibetan', autoFillEmpty: true }
+    const both = [libNote(1, ['ཀ', '', '']), libNote(2, ['ཀ', 'ka', ''])]
+    const selected = selectMatches({ pkg, guidMap: {}, records: both.map((n) => toRecord(n, 'tibetan')), mapping: DEFAULT_MAPPING, settings })
+    const libNotes = [both[0]] // note 2 was deleted
+    const matches = rankCandidates({ pkg, matches: selected, libNotes, mapping: DEFAULT_MAPPING })
+    const [r] = analyze({ pkg, matches, libNotes, mapping: DEFAULT_MAPPING, settings })
+    expect(r.libNote.id).toBe(1)
+    expect(r.ambiguous).toBe(false)
   })
 
   it('matches across tsheg/shad and Unicode spelling differences', () => {

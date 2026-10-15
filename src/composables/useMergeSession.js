@@ -2,7 +2,7 @@ import { computed, markRaw, reactive, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open, save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { createAnkiClient } from '../lib/ankiClient.js'
-import { analyze, initialResolution, libraryFingerprint, selectMatches } from '../lib/match.js'
+import { analyze, initialResolution, libraryFingerprint, rankCandidates, selectMatches } from '../lib/match.js'
 import { buildPlan, createReport, defaultMergeTag, executePlan } from '../lib/applyMerge.js'
 import { buildDryRun } from '../lib/dryRun.js'
 import { defaultFieldMap, needsFieldMap, pairKey, reconcileFieldMap, savedPairKey, withNewFields } from '../lib/fieldMap.js'
@@ -81,6 +81,8 @@ const state = reactive({
   libNotes: [],
   entries: [],
   resolutions: {},
+  // {guid: libraryNoteId}: the user's choice where several library notes share a main field.
+  picks: {},
   // New notes and auto-merges the user accepted. Merging is opt-in: nothing
   // outside this set (or, for conflicts, an accepted resolution) is written.
   accepted: new Set(),
@@ -131,6 +133,7 @@ function scheduleSave() {
 watch(
   () => [
     state.resolutions,
+    state.picks,
     state.accepted,
     state.merged,
     state.runs,
@@ -256,6 +259,7 @@ async function openPackage(path = null) {
       state.libNotes = []
       state.entries = []
       state.resolutions = {}
+      state.picks = {}
       state.accepted = new Set()
       state.analyzedAt = null
       state.merged = {}
@@ -285,6 +289,8 @@ function restoreSaved(record) {
   state.newFields = r.newFields
   // Decisions are raw until analysis checks them against the library (savedResolution).
   state.resolutions = r.resolutions
+  // Applied by rankCandidates while the chosen note is still a candidate.
+  state.picks = r.picks
   // Raw until analysis keeps only guids that are still new notes or auto-merges (classify).
   state.accepted = r.accepted
   state.merged = r.merged
@@ -375,11 +381,16 @@ async function runAnalysis() {
     const records = await client.fieldValues(settings.mainField || '')
     // Notes an earlier run wrote are found through the ledger: an added note
     // has a fresh GUID in Anki, so neither GUID nor main field is reliable.
-    const matches = mergedMatches(selectMatches({ pkg, guidMap, records, mapping: state.mapping, settings }), state.merged)
+    const selected = selectMatches({ pkg, guidMap, records, mapping: state.mapping, settings })
 
-    const ids = [...new Set([...matches.values()].map((m) => m.libId))]
+    // Every candidate is loaded, not just the first, so ambiguous matches can be
+    // ranked on content and switched in review without asking Anki again.
+    const mergedIds = Object.values(state.merged).map((m) => m.libNoteId).filter((id) => id != null)
+    const ids = [...new Set([...[...selected.values()].flatMap((m) => m.candidates), ...mergedIds])]
     state.progress = `Loading ${ids.length} matched library notes…`
     const libNotes = await client.notesInfo(ids)
+    const ranked = rankCandidates({ pkg, matches: selected, libNotes, mapping: state.mapping, fieldMaps: state.fieldMaps, picks: state.picks })
+    const matches = mergedMatches(ranked, state.merged)
     for (const n of libNotes) state.libModelFields[n.modelName] ??= n.fieldOrder
     await loadModelFonts([...new Set(libNotes.map((n) => n.modelName))])
 
@@ -446,6 +457,30 @@ function classify(previous) {
   )
   const kept = [...state.accepted].filter((guid) => optIn.has(guid))
   if (kept.length !== state.accepted.size) state.accepted = new Set(kept)
+}
+
+/**
+ * Match a package note to another of its main-field candidates and
+ * re-classify. The candidates are already loaded, so Anki isn't asked again.
+ * The note's review decision resets (it was made against the other note).
+ */
+function pickCandidate(guid, libId) {
+  const m = state.matches?.get(guid)
+  if (!m?.candidates.includes(libId) || m.libId === libId) return
+  state.picks = { ...state.picks, [guid]: libId }
+  const matches = new Map(state.matches)
+  matches.set(guid, { ...m, libId, picked: true })
+  state.matches = markRaw(matches)
+  classify(state.resolutions)
+}
+
+/** Show a library note in Anki's Browse window (close it again before applying). */
+async function openInAnki(noteId) {
+  try {
+    await client.guiBrowse(`nid:${noteId}`)
+  } catch (e) {
+    state.error = `Could not open the note in Anki: ${e?.message ?? e}`
+  }
 }
 
 /** Guids of open (not yet merged) entries of a kind that can be accepted in bulk. */
@@ -572,7 +607,8 @@ const counts = computed(() => {
     if (e.kind === 'conflict' ? state.resolutions[e.guid]?.status === 'accepted' : state.accepted.has(e.guid)) {
       if (e.kind in c.accepted) c.accepted[e.kind]++
     }
-    if (e.ambiguous) c.ambiguous++
+    // Only matches that would write; an identical one leaves the library alone.
+    if (e.ambiguous && e.kind !== 'identical') c.ambiguous++
     if (e.sharedWith?.length) c.shared++
     if (e.dropped?.length) c.dropped++
   }
@@ -745,6 +781,8 @@ export function useMergeSession() {
     clearAll,
     acceptAllWithoutConflict,
     setAccepted,
+    pickCandidate,
+    openInAnki,
     applyMerge,
     resolveMedia,
     fieldFont,

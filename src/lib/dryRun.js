@@ -122,7 +122,7 @@ export function buildDryRun({
   for (const e of entries) {
     if (!writtenGuids.has(e.guid)) continue
     const l = label(e, mainField)
-    if (e.ambiguous) warnings.push({ kind: 'ambiguous', guid: e.guid, label: l, detail: 'Several library notes share this main field; the first match is used.' })
+    if (e.ambiguous) warnings.push({ kind: 'ambiguous', guid: e.guid, label: l, detail: `Several library notes share this main field; writing to note ${e.libNote.id} (${e.picked ? 'your choice' : 'the closest'}).` })
     if (e.sharedWith?.length) warnings.push({ kind: 'shared', guid: e.guid, label: l, detail: `Matches the same library note as ${e.sharedWith.length} other package note(s).` })
     if (e.dropped?.length) warnings.push({ kind: 'dropped', guid: e.guid, label: l, detail: `Package content not merged (no matching library field): ${e.dropped.join(', ')}` })
   }

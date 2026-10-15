@@ -32,6 +32,13 @@ const STATUS_ICON = { pending: '○', accepted: '✓', skipped: '–' }
 const KIND_ICON = { new: '+', auto: '~', conflict: '✓' }
 
 const label = (e) => entryLabel(e, settings.mainField)
+const warnTitle = (e) =>
+  [
+    e.ambiguous && `${e.candidates.length} library notes share this main field`,
+    e.sharedWith.length && 'Shares a library note with another package note',
+  ]
+    .filter(Boolean)
+    .join('; ')
 // Merging is opt-in: a ticked box means "accepted", and only accepted notes are written.
 const isAccepted = (e) => state.accepted.has(e.guid)
 const toggle = (e) => setAccepted(e.guid, !isAccepted(e))
@@ -90,7 +97,8 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
       different values for a field, applying is blocked until you skip one or make them agree.
     </p>
     <p v-if="counts.ambiguous" class="warn-text small">
-      {{ counts.ambiguous }} note(s) matched more than one library note by main field; the first match is used.
+      {{ counts.ambiguous }} note(s) matched more than one library note by main field (marked ⚠ under Conflicts). The
+      closest library note is used; each is a conflict so you can check it, or pick another note, before it's merged.
     </p>
     <p v-if="counts.dropped" class="warn-text small">
       {{ counts.dropped }} matched note(s) have package content in fields not mapped to their library note type; that
@@ -110,7 +118,7 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
             @click="current = i"
           >
             <span class="icon">{{ STATUS_ICON[state.resolutions[e.guid].status] }}</span>
-            <span v-if="e.sharedWith.length" class="warn-text">⚠ </span>{{ label(e) }}
+            <span v-if="e.sharedWith.length || e.ambiguous" class="warn-text" :title="warnTitle(e)">⚠ </span>{{ label(e) }}
           </li>
         </ol>
         <ConflictMerge
@@ -138,7 +146,7 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
         <tbody>
           <tr v-for="e in autos" :key="e.guid" :class="{ pending: !isAccepted(e) }">
             <td><input type="checkbox" :checked="isAccepted(e)" :aria-label="`Accept ${label(e)}`" @change="toggle(e)" /></td>
-            <td><span v-if="e.sharedWith.length" class="warn-text" title="Shares a library note with another package note">⚠ </span>{{ label(e) }}</td>
+            <td><span v-if="e.sharedWith.length || e.ambiguous" class="warn-text" :title="warnTitle(e)">⚠ </span>{{ label(e) }}</td>
             <td class="small">
               <div v-for="f in e.fields.filter((x) => x.status === 'fill')" :key="f.name">
                 <b>{{ f.name }}:</b> {{ f.pkg }}

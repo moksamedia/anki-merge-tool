@@ -56,6 +56,7 @@ export function createAnkiClient(settings) {
     },
 
     retrieveMediaFile: (filename) => call('retrieveMediaFile', { filename }),
+    guiBrowse: (query) => call('guiBrowse', { query }),
 
     bridgeHealth: () => bridge('GET', '/health', null, 5),
     // Allow the bridge its full backup window plus some slack.

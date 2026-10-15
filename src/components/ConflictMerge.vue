@@ -18,7 +18,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['prev', 'next'])
 
-const { state, settings, fieldFont } = useMergeSession()
+const { state, settings, fieldFont, pickCandidate, openInAnki } = useMergeSession()
 const showSame = ref(false)
 
 const resolution = computed(() => state.resolutions[props.entry.guid])
@@ -81,6 +81,40 @@ function onSideClick(f, side, e) {
 /** Shift-click would extend the text selection; it's a selection of sides here. */
 const onSideMousedown = (e) => e.shiftKey && e.preventDefault()
 
+// Several library notes share this main field: list them so a wrong pick can be switched.
+const libById = computed(() => new Map(state.libNotes.map((n) => [n.id, n])))
+const plain = (html) =>
+  (html ?? '').replace(/\[sound:[^\]]*\]/g, '🔊').replace(/<img[^>]*>/gi, '🖼').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+/** A one-line glimpse of a candidate: its non-empty fields after the main one. */
+function glimpse(id) {
+  const note = libById.value.get(id)
+  if (!note) return ''
+  const main = settings.mainField.toLowerCase()
+  const text = note.fieldOrder
+    .filter((name) => name.toLowerCase() !== main)
+    .map((name) => plain(note.fields[name]))
+    .filter(Boolean)
+    .join(' · ')
+  return text.length > 160 ? `${text.slice(0, 160)}…` : text || '(no other fields filled)'
+}
+
+/** Switch to another candidate; asks first if this note's decision would be lost. */
+async function choose(id) {
+  if (id === props.entry.libNote.id) return
+  const fresh = initialResolution(props.entry).values
+  const touched =
+    resolution.value.status !== 'pending' || props.entry.fields.some((f) => valueOf(f) !== (fresh[f.name] ?? ''))
+  const ok =
+    !touched ||
+    (await confirm('Matching another library note resets your decision and edits for this note.', {
+      title: 'Switch library note?',
+      kind: 'warning',
+      okLabel: 'Switch',
+      cancelLabel: 'Keep this one',
+    }))
+  if (ok) pickCandidate(props.entry.guid, id)
+}
+
 function decide(status) {
   resolution.value.status = status
   if (props.index < props.total - 1) emit('next')
@@ -118,7 +152,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         <h3>{{ entryLabel(entry, settings.mainField) }}</h3>
         <span class="badge">{{ entry.notetype.name }} → {{ entry.libNote.modelName }}</span>
         <span class="badge">matched by {{ entry.matchedBy === 'guid' ? 'GUID' : 'main field' }}</span>
-        <span v-if="entry.ambiguous" class="badge warn">several library notes share this main field — matched the first</span>
+        <span v-if="entry.ambiguous" class="badge warn">{{ entry.candidates.length }} library notes share this main field</span>
         <span v-if="entry.sharedWith.length" class="badge warn">
           {{ entry.sharedWith.length }} other package note{{ entry.sharedWith.length === 1 ? '' : 's' }} also match this
           library note
@@ -133,6 +167,36 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         <button :disabled="index === total - 1" @click="emit('next')">Next →</button>
       </div>
     </header>
+
+    <div v-if="entry.ambiguous" class="candidates">
+      <p class="small">
+        <span class="warn-text">Which library note is this?</span>
+        {{ entry.picked ? 'Using your choice.' : 'Using the closest match.' }} Pick another to merge into it instead.
+      </p>
+      <div
+        v-for="(c, i) in entry.candidates"
+        :key="c.id"
+        class="candidate"
+        :class="{ on: c.id === entry.libNote.id }"
+        role="button"
+        tabindex="0"
+        :aria-pressed="c.id === entry.libNote.id"
+        @click="choose(c.id)"
+        @keydown.enter.prevent="choose(c.id)"
+        @keydown.space.prevent="choose(c.id)"
+      >
+        <span class="mark">{{ c.id === entry.libNote.id ? '●' : '○' }}</span>
+        <span class="what">
+          <b>{{ c.modelName }}</b>
+          <span class="muted"> · note {{ c.id }}</span>
+          <span v-if="c.filled != null" class="muted"> · {{ c.filled }} fields filled, {{ c.same }} same as package</span>
+          <span v-if="i === 0" class="badge">closest</span>
+          <br />
+          <span class="muted small">{{ glimpse(c.id) }}</span>
+        </span>
+        <button class="link small" title="Show this note in Anki's Browse window" @click.stop="openInAnki(c.id)">Open in Anki</button>
+      </div>
+    </div>
 
     <table class="fields">
       <thead>
@@ -208,3 +272,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     </footer>
   </div>
 </template>
+
+<style scoped>
+.candidates { margin: 8px 0 12px; }
+.candidates p { margin: 0 0 6px; }
+.candidate { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.candidate:hover { outline: 1px solid var(--accent); }
+.candidate.on { background: var(--fill-bg); box-shadow: inset 0 0 0 1px var(--accent); }
+.candidate .mark { color: var(--accent); }
+.candidate .what { flex: 1; min-width: 0; }
+</style>

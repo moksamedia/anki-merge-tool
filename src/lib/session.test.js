@@ -164,11 +164,11 @@ describe('mergedFromRun', () => {
 
 describe('mergedMatches', () => {
   it('points merged notes at the library notes they were written to', () => {
-    const matches = new Map([['a1', { libId: 100, matchedBy: 'guid', candidates: 1 }]])
+    const matches = new Map([['a1', { libId: 100, matchedBy: 'guid', candidates: [100] }]])
     const merged = { n1: { libNoteId: 9001 }, a1: { libNoteId: 100 }, x: { libNoteId: null } }
     const out = mergedMatches(matches, merged)
-    expect(out.get('n1')).toEqual({ libId: 9001, matchedBy: 'merged', candidates: 1 })
-    expect(out.get('a1')).toEqual({ libId: 100, matchedBy: 'merged', candidates: 1 })
+    expect(out.get('n1')).toEqual({ libId: 9001, matchedBy: 'merged', candidates: [9001] })
+    expect(out.get('a1')).toEqual({ libId: 100, matchedBy: 'merged', candidates: [100] })
     expect(out.has('x')).toBe(false)
     expect(matches.get('a1').matchedBy).toBe('guid')
   })

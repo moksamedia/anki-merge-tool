@@ -112,7 +112,9 @@ function fieldCandidates(index, notetype, fields, target, preferredMainField) {
  *
  * @param guidMap  {guid: libraryNoteId} from the bridge ({} when GUIDs are ignored)
  * @param records  library records, see toRecord()
- * @returns Map guid -> {libId, matchedBy: 'guid'|'field', candidates}; unmatched notes are absent
+ * @returns Map guid -> {libId, matchedBy: 'guid'|'field', candidates: [libraryNoteId]}; unmatched
+ *          notes are absent. Several main-field candidates are listed mapped-type first;
+ *          rankCandidates() then picks among them once the full notes are loaded.
  */
 export function selectMatches({ pkg, guidMap, records, mapping, settings }) {
   const notetypes = new Map(pkg.notetypes.map((nt) => [nt.id, nt]))
@@ -121,14 +123,74 @@ export function selectMatches({ pkg, guidMap, records, mapping, settings }) {
   for (const note of pkg.notes) {
     const guidHit = settings.ignoreGuid ? undefined : guidMap[note.guid]
     if (guidHit !== undefined) {
-      matches.set(note.guid, { libId: guidHit, matchedBy: 'guid', candidates: 1 })
+      matches.set(note.guid, { libId: guidHit, matchedBy: 'guid', candidates: [guidHit] })
       continue
     }
     const notetype = notetypes.get(note.notetypeId)
     const hits = fieldCandidates(index, notetype, namedFields(note, notetype), mapping[note.notetypeId], settings.mainField)
-    if (hits.length) matches.set(note.guid, { libId: hits[0].id, matchedBy: 'field', candidates: hits.length })
+    if (hits.length) matches.set(note.guid, { libId: hits[0].id, matchedBy: 'field', candidates: hits.map((h) => h.id) })
   }
   return matches
+}
+
+/** How alike a library note is to a package note: non-empty fields with the same content, and non-empty fields. */
+function likeness(pkgFields, libNote, fieldMap) {
+  let same = 0
+  let filled = 0
+  for (const name of libNote.fieldOrder) {
+    const lib = libNote.fields[name] ?? ''
+    if (isEmpty(lib)) continue
+    filled++
+    const pkg = pkgFields[fieldMap[name]]
+    if (pkg !== undefined && normalizeValue(pkg) === normalizeValue(lib)) same++
+  }
+  return { same, filled }
+}
+
+/**
+ * Phase 1b: when several library notes share a package note's main field,
+ * choose the one most like it, now that the full notes are loaded: most fields
+ * with the same content; then a note with content of its own over a stub that
+ * only repeats the package (an empty stub never beats a filled note); then the
+ * mapped note type; then most fields filled; then library order.
+ * A choice the user made (`picks`, {guid: libraryNoteId}) wins while that note
+ * is still a candidate. Candidates no longer in the library are dropped.
+ *
+ * @returns a new Map; ranked entries carry `candidates` best first, `scores`
+ *          ({id: {same, filled}}) and `picked` (whether the user chose libId).
+ */
+export function rankCandidates({ pkg, matches, libNotes, mapping, fieldMaps = {}, picks = {} }) {
+  const notetypes = new Map(pkg.notetypes.map((nt) => [nt.id, nt]))
+  const libById = new Map(libNotes.map((n) => [n.id, n]))
+  const out = new Map(matches)
+  for (const note of pkg.notes) {
+    const m = matches.get(note.guid)
+    if (!m || m.candidates.length < 2) continue
+    const present = m.candidates.filter((id) => libById.has(id))
+    if (!present.length) continue
+    const notetype = notetypes.get(note.notetypeId)
+    const fields = namedFields(note, notetype)
+    const preferred = mapping[note.notetypeId]?.modelName
+    const scored = present.map((id, order) => {
+      const lib = libById.get(id)
+      const map = fieldMaps[pairKey(notetype.id, lib.modelName)] ?? defaultFieldMap(notetype.fields, lib.fieldOrder)
+      const { same, filled } = likeness(fields, lib, map)
+      return { id, order, same, filled, own: filled > same, preferred: lib.modelName === preferred }
+    })
+    scored.sort(
+      (a, b) =>
+        b.same - a.same || b.own - a.own || b.preferred - a.preferred || b.filled - a.filled || a.order - b.order,
+    )
+    const picked = present.includes(picks[note.guid])
+    out.set(note.guid, {
+      ...m,
+      libId: picked ? picks[note.guid] : scored[0].id,
+      candidates: scored.map((s) => s.id),
+      scores: Object.fromEntries(scored.map(({ id, same, filled }) => [id, { same, filled }])),
+      picked,
+    })
+  }
+  return out
 }
 
 /**
@@ -173,7 +235,10 @@ export function newTags(pkgTags, libTags) {
  * @param fieldMaps {pairKey: fieldMap} chosen field maps; pairs without one pair fields by name
  * @param libModelFields {modelName: [fieldNames]}, for new notes added to an existing model
  * @returns array of {kind: new|identical|auto|conflict, ...}. Matched entries carry
- *          `sharedWith`: guids of other package notes matched to the same library note.
+ *          `sharedWith`: guids of other package notes matched to the same library note,
+ *          and `candidates`: every library note the match could have been
+ *          ([{id, modelName, same, filled}], best first). An ambiguous match that
+ *          would write is a conflict, so it is always looked at before merging.
  *          Entries written to an existing model carry the `fieldMap` used.
  */
 export function analyze({ pkg, matches, libNotes, mapping, settings, fieldMaps = {}, libModelFields = {} }) {
@@ -195,14 +260,19 @@ export function analyze({ pkg, matches, libNotes, mapping, settings, fieldMaps =
       const fieldMap = target.create ? null : fieldMapFor(notetype, target.modelName, libModelFields[target.modelName] ?? [])
       return { ...base, kind: 'new', fieldMap }
     }
-    const { matchedBy, candidates } = match
+    const { matchedBy } = match
+    const candidates = match.candidates
+      .filter((id) => libById.has(id))
+      .map((id) => ({ id, modelName: libById.get(id).modelName, ...match.scores?.[id] }))
+    const ambiguous = candidates.length > 1
 
     const fieldMap = fieldMapFor(notetype, libNote.modelName, libNote.fieldOrder)
     const { fields: comparison, dropped } = compareFields(fields, libNote, settings, fieldMap)
     const tagsToAdd = newTags(note.tags, libNote.tags)
     const hasConflict = comparison.some((f) => f.status === 'conflict')
     const hasFill = comparison.some((f) => f.status === 'fill')
-    const kind = hasConflict ? 'conflict' : hasFill || tagsToAdd.length ? 'auto' : 'identical'
+    const writes = hasFill || tagsToAdd.length > 0
+    const kind = hasConflict || (ambiguous && writes) ? 'conflict' : writes ? 'auto' : 'identical'
 
     return {
       ...base,
@@ -210,7 +280,9 @@ export function analyze({ pkg, matches, libNotes, mapping, settings, fieldMaps =
       libNote,
       fieldMap,
       matchedBy,
-      ambiguous: candidates > 1,
+      ambiguous,
+      candidates,
+      picked: !!match.picked,
       fields: comparison,
       dropped,
       tagsToAdd,
