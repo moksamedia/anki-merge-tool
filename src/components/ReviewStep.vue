@@ -250,7 +250,8 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
       <table v-else class="plain dups">
         <thead><tr><th>Package note</th><th>Already in your library</th><th>Decision</th></tr></thead>
         <tbody>
-          <tr v-for="e in shownDuplicates" :key="e.guid" :class="{ pending: !dupDecision(e) }">
+          <!-- Dimmed once left out; undecided rows stay at full strength, since they still need a decision. -->
+          <tr v-for="e in shownDuplicates" :key="e.guid" :class="{ pending: dupDecision(e) === 'skip' }">
             <td>
               <b>{{ label(e) }}</b> <span class="muted small">{{ e.notetype.name }}</span>
               <div class="muted small">{{ glimpse(e.pkgFields) }}</div>
