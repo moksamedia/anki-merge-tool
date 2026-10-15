@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useMergeSession } from './composables/useMergeSession.js'
 import ConnectStep from './components/ConnectStep.vue'
 import PackageStep from './components/PackageStep.vue'
@@ -9,7 +9,7 @@ import ReviewStep from './components/ReviewStep.vue'
 import PreviewStep from './components/PreviewStep.vue'
 import ApplyStep from './components/ApplyStep.vue'
 
-const { state } = useMergeSession()
+const { state, checkConnection, openPackage, runAnalysis } = useMergeSession()
 const step = ref('connect')
 
 const connected = computed(() => state.connection.anki?.ok && state.connection.bridge?.ok)
@@ -22,6 +22,80 @@ const steps = computed(() => [
   { id: 'preview', label: 'Preview', enabled: state.entries.length > 0 },
   { id: 'apply', label: 'Apply', enabled: state.entries.length > 0 },
 ])
+
+// ---- picking up where the last run left off -----------------------------
+// The open package and step are remembered. On launch the app reconnects,
+// reopens the package, re-analyzes when the step needs it, and returns to that
+// step. A failure stops at the step that failed, with a notice and a Retry.
+
+const LAST_PLACE = 'lastPlace'
+const NEEDS_ANALYSIS = ['fields', 'review', 'preview', 'apply']
+const STEP_LABEL = { configure: 'Configure', fields: 'Note types', review: 'Review', preview: 'Preview', apply: 'Apply' }
+
+function readLastPlace() {
+  try {
+    const place = JSON.parse(localStorage.getItem(LAST_PLACE) ?? 'null')
+    return place?.path && STEP_LABEL[place.step] ? place : null
+  } catch {
+    return null
+  }
+}
+
+// place: {path, step} being resumed; status: 'working' | 'blocked' | null
+const resume = reactive({ place: null, status: null, message: '' })
+const fileName = (path) => path.split(/[\\/]/).pop()
+
+watch([step, () => state.pkgPath], ([s, path]) => {
+  if (resume.status === 'working') return
+  try {
+    localStorage.setItem(LAST_PLACE, JSON.stringify(path ? { path, step: s } : null))
+  } catch {
+    // Remembering the place is a convenience only.
+  }
+})
+
+async function resumeLastPlace() {
+  const { path, step: target } = resume.place
+  const block = (at, message) => {
+    step.value = at
+    Object.assign(resume, { status: 'blocked', message })
+  }
+  Object.assign(resume, { status: 'working', message: `Resuming ${fileName(path)}: connecting to Anki…` })
+  step.value = 'connect'
+  await checkConnection()
+  if (!connected.value) {
+    return block('connect', `Couldn't connect to Anki to resume ${fileName(path)}. Open Anki with both add-ons, then retry.`)
+  }
+  resume.message = `Resuming ${fileName(path)}: opening the package…`
+  await openPackage(path)
+  if (!state.pkg || state.pkgPath !== path || state.error) {
+    return block('package', `Couldn't reopen ${fileName(path)}. ${state.error ?? ''}`.trim())
+  }
+  if (NEEDS_ANALYSIS.includes(target)) {
+    step.value = 'configure'
+    resume.message = `Resuming ${fileName(path)}: analyzing the library…`
+    await runAnalysis()
+    if (!state.entries.length || state.error) {
+      return block('configure', `Couldn't analyze the library to resume ${fileName(path)}. ${state.error ?? ''}`.trim())
+    }
+  }
+  step.value = target
+  Object.assign(resume, { place: null, status: null, message: '' })
+}
+
+function dismissResume() {
+  Object.assign(resume, { place: null, status: null, message: '' })
+  try {
+    localStorage.removeItem(LAST_PLACE)
+  } catch {
+    // Nothing to forget.
+  }
+}
+
+onMounted(() => {
+  resume.place = readLastPlace()
+  if (resume.place) resumeLastPlace()
+})
 </script>
 
 <template>
@@ -39,7 +113,15 @@ const steps = computed(() => [
   </nav>
 
   <main>
-    <div v-if="state.error" class="error" role="alert">
+    <div v-if="resume.status" class="resume" :class="resume.status" role="status">
+      <span>{{ resume.message }}</span>
+      <template v-if="resume.status === 'blocked'">
+        <button :disabled="state.busy || state.connection.checking" @click="resumeLastPlace">Retry</button>
+        <button class="link" @click="dismissResume">Start over instead</button>
+      </template>
+      <span v-else class="muted small">You'll be taken back to {{ STEP_LABEL[resume.place.step] }}.</span>
+    </div>
+    <div v-if="state.error && resume.status !== 'blocked'" class="error" role="alert">
       {{ state.error }}
       <button class="link" @click="state.error = null">dismiss</button>
     </div>
@@ -175,6 +257,13 @@ input.inline { margin-left: 6px; width: 200px; }
 .small { font-size: 12px; }
 .ok-text { color: var(--ok); }
 .warn-text { color: var(--warn); }
+.resume {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  border: 1px solid var(--accent); background: var(--fill-bg);
+  border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;
+}
+.resume.blocked { border-color: var(--warn); }
+.resume.blocked > span { color: var(--warn); flex: 1; }
 .error {
   background: var(--del-bg); color: var(--text); border: 1px solid var(--danger);
   border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; white-space: pre-wrap;

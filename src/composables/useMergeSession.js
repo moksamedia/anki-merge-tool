@@ -190,7 +190,14 @@ async function run(task) {
   }
 }
 
-async function checkConnection() {
+// One check at a time: the Connect step and resuming on launch may both ask.
+let connectionCheck = null
+function checkConnection() {
+  connectionCheck ??= runConnectionCheck().finally(() => (connectionCheck = null))
+  return connectionCheck
+}
+
+async function runConnectionCheck() {
   state.connection.checking = true
   const [anki, bridge] = await Promise.allSettled([client.version(), client.bridgeHealth()])
   state.connection.anki =

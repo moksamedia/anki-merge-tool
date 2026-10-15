@@ -18,6 +18,8 @@ No CORS setup is needed, because all HTTP calls go through the Rust side.
 
 ## Flow
 
+The app picks up where you left off. It remembers the open package and step. On launch it reconnects, reopens the package, re-analyzes the library when the step needs it (Note types, Review, Preview, Apply), and returns to that step. If Anki can't be reached, the package can't be opened or the analysis fails, it stops on that step with a notice and **Retry**; **Start over instead** forgets the place.
+
 1. **Connect:** checks both services.
 2. **Package:** pick an `.apkg` file, or reopen one of the last five from **Recent**. All formats are supported: `anki21b` (zstd + protobuf media map), `anki21` and `anki2`.
 3. **Configure:**
