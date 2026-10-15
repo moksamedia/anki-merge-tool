@@ -18,6 +18,8 @@ const DEFAULT_SETTINGS = {
   resultMode: 'code',
   // Whether field cells in the review show rendered HTML instead of the raw diff.
   rendered: false,
+  // Field-map pairs left open on the Fields step, by note type names (savedPairKey).
+  openFieldPairs: [],
 }
 
 function load(key, fallback) {
