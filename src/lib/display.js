@@ -4,17 +4,26 @@ import { mainFieldName } from './match.js'
 export const plainText = (html) => (html ?? '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
 
 /**
- * A one-line glimpse of a note: its non-empty fields other than the main one,
- * in order, with sounds and images as icons. `fields` is {name: html}.
+ * A one-line glimpse of a note's text: its non-empty fields other than the main
+ * one, in order. Sounds and images are left out (show them with MediaStrip)
+ * and a bare URL shows as its host. `fields` is {name: html}.
  */
 export function fieldsGlimpse(fields, preferredMainField, max = 160) {
   const main = preferredMainField?.trim().toLowerCase()
   const text = Object.entries(fields ?? {})
     .filter(([name]) => name.toLowerCase() !== main)
-    .map(([, html]) => plainText((html ?? '').replace(/\[sound:[^\]]*\]/g, '🔊').replace(/<img[^>]*>/gi, '🖼')))
+    .map(([, html]) =>
+      plainText((html ?? '').replace(/\[sound:[^\]]*\]/g, ' ').replace(/<img[^>]*>/gi, ' ')).replace(
+        /\bhttps?:\/\/([^/\s]+)\S*/gi,
+        (_, host) => `${host.replace(/^www\./, '')} ↗`,
+      ),
+    )
     .filter(Boolean)
     .join(' · ')
-  if (!text) return '(no other fields filled)'
+  if (!text) {
+    const hasMedia = Object.values(fields ?? {}).some((html) => /\[sound:|<img/i.test(html ?? ''))
+    return hasMedia ? '' : '(no other fields filled)'
+  }
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
 

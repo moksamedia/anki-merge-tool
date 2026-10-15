@@ -184,6 +184,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
           <span v-if="i === 0" class="badge">closest</span>
           <br />
           <span class="muted small">{{ glimpse(c.id) }}</span>
+          <MediaStrip :html="Object.values(libById.get(c.id)?.fields ?? {}).join(' ')" source="lib" lazy @click.stop />
         </span>
         <button class="link small" title="Show this note in Anki's Browse window" @click.stop="openInAnki(c.id)">Open in Anki</button>
       </div>

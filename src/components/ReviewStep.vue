@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { entryLabel, fieldsGlimpse } from '../lib/display.js'
 import ConflictMerge from './ConflictMerge.vue'
+import MediaStrip from './MediaStrip.vue'
 import MergedNote from './MergedNote.vue'
 
 const emit = defineEmits(['done', 'fields'])
@@ -54,6 +55,8 @@ const libById = computed(() => new Map(state.libNotes.map((n) => [n.id, n])))
 const othersOf = (e) =>
   (state.matches?.get(e.guid)?.elsewhere ?? []).map((id) => libById.value.get(id)).filter(Boolean)
 const glimpse = (fields) => fieldsGlimpse(fields, settings.mainField)
+// All of a note's field HTML, for MediaStrip to find its images and sounds.
+const mediaHtml = (fields) => Object.values(fields ?? {}).join(' ')
 const mergedEntries = computed(() =>
   state.entries
     .filter((e) => !open(e))
@@ -251,11 +254,13 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
             <td>
               <b>{{ label(e) }}</b> <span class="muted small">{{ e.notetype.name }}</span>
               <div class="muted small">{{ glimpse(e.pkgFields) }}</div>
+              <MediaStrip :html="mediaHtml(e.pkgFields)" source="pkg" lazy />
             </td>
             <td>
               <div v-for="n in othersOf(e)" :key="n.id" class="other" :class="{ on: e.crossType && e.libNote.id === n.id }">
                 <b>{{ n.modelName }}</b> <span class="muted small">· note {{ n.id }}</span>
                 <div class="muted small">{{ glimpse(n.fields) }}</div>
+                <MediaStrip :html="mediaHtml(n.fields)" source="lib" lazy />
                 <button class="link small" @click="openInAnki(n.id)">Open in Anki</button>
                 <span v-if="e.crossType && e.libNote.id === n.id" class="small ok-text">
                   · merging into this note ({{ e.kind === 'conflict' ? 'accept it under Conflicts' : e.kind === 'auto' ? 'accepted under Auto-merges' : 'nothing differs' }})
