@@ -1,17 +1,12 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
-import { mainFieldName, namedFields } from '../lib/match.js'
-import { needsFieldMap, pairKey, unmappedFields } from '../lib/fieldMap.js'
+import { mainFieldName } from '../lib/match.js'
+import { pairKey, unmappedFields } from '../lib/fieldMap.js'
 import { sanitizeTag } from '../lib/applyMerge.js'
-import FieldMapTable from './FieldMapTable.vue'
 
 const emit = defineEmits(['done'])
-const { settings, state, fieldMapOf, libFieldsOf, setNoteTypeTarget, runAnalysis } = useMergeSession()
-
-// Field mapping stays hidden by default: fields pair by name unless the user
-// opens it and chooses otherwise.
-const showFields = ref(false)
+const { settings, state, fieldMapOf, libFieldsOf, fieldPairs, setNoteTypeTarget, runAnalysis } = useMergeSession()
 
 // Only note types that actually have notes in the package need a target.
 const usedTypes = computed(() => {
@@ -40,36 +35,16 @@ function createName(nt) {
   return name
 }
 
-// A few package notes per type, for the field map's example column.
-const samples = computed(() => {
-  const out = new Map()
-  for (const note of state.pkg.notes) {
-    const list = out.get(note.notetypeId) ?? []
-    if (list.length < 20) out.set(note.notetypeId, [...list, note])
-  }
-  const types = new Map(state.pkg.notetypes.map((nt) => [nt.id, nt]))
-  return new Map([...out].map(([id, notes]) => [id, notes.map((n) => namedFields(n, types.get(id)))]))
-})
-
-/** Per row: the field-map pair new notes go through (null when creating a type), and what it leaves out. */
+/** Per row: the field the type matches on, and which package fields its new notes leave out. */
 const rows = computed(() =>
   usedTypes.value.map((nt) => {
     const m = state.mapping[nt.id]
-    if (m.create) return { nt, pair: null, needsMap: false, unmapped: [], main: mainFieldName(nt.fields, settings.mainField) }
+    if (m.create) return { nt, unmapped: [], main: mainFieldName(nt.fields, settings.mainField) }
     const libFields = libFieldsOf(m.modelName)
-    const pair = { key: pairKey(nt.id, m.modelName), notetype: nt, modelName: m.modelName, libFields, samples: samples.value.get(nt.id) ?? [] }
-    return {
-      nt,
-      pair,
-      needsMap: needsFieldMap(nt, m.modelName, libFields),
-      unmapped: unmappedFields(nt.fields, fieldMapOf(pair)),
-      main: mainFieldName(libFields, settings.mainField),
-    }
+    const pair = { key: pairKey(nt.id, m.modelName), notetype: nt, modelName: m.modelName, libFields }
+    return { nt, unmapped: unmappedFields(nt.fields, fieldMapOf(pair)), main: mainFieldName(libFields, settings.mainField) }
   }),
 )
-
-/** Rows whose package and library note types don't line up — the ones the field mapping lists. */
-const mapRows = computed(() => rows.value.filter((r) => r.needsMap))
 
 const createNameTaken = (nt) => state.mapping[nt.id].create && state.libModels.includes(state.mapping[nt.id].modelName)
 
@@ -85,9 +60,10 @@ const canAnalyze = computed(
   () => (state.deckMode === 'package' || state.targetDeck.trim()) && !usedTypes.value.some(createNameTaken),
 )
 
+// Field maps come after analysis, once it's known which library note types the notes go through.
 async function analyze() {
   await runAnalysis()
-  if (state.entries.length && !state.error) emit('done')
+  if (state.entries.length && !state.error) emit('done', { needsFields: fieldPairs.value.length > 0 })
 }
 </script>
 
@@ -183,24 +159,10 @@ async function analyze() {
           </tr>
         </tbody>
       </table>
-      <button v-if="mapRows.length" :aria-expanded="showFields" class="fields-toggle" @click="showFields = !showFields">
-        {{ showFields ? 'Hide field mapping' : 'Configure fields' }}
-      </button>
-    </div>
-
-    <div v-if="showFields && mapRows.length" class="card">
-      <h3>Field mapping</h3>
       <p class="muted small">
-        Choose which package field fills each library field. Same-named fields are paired automatically; choices are
-        remembered for the next package with the same note types. Notes that match into other library note types can be
-        mapped in Review.
+        Field maps are set after analysis, once it's known which library note types the notes match: these targets, and
+        any other type a package note already exists under.
       </p>
-      <div v-for="{ pair } in mapRows" :key="pair.key" class="pair">
-        <div class="map-head">
-          <h3>{{ pair.notetype.name }} <span class="muted">→</span> {{ pair.modelName }}</h3>
-        </div>
-        <FieldMapTable :pair="pair" />
-      </div>
     </div>
 
     <button class="primary" :disabled="state.busy || !canAnalyze" @click="analyze">Analyze against library</button>

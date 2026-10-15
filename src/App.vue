@@ -4,6 +4,7 @@ import { useMergeSession } from './composables/useMergeSession.js'
 import ConnectStep from './components/ConnectStep.vue'
 import PackageStep from './components/PackageStep.vue'
 import ConfigureStep from './components/ConfigureStep.vue'
+import FieldsStep from './components/FieldsStep.vue'
 import ReviewStep from './components/ReviewStep.vue'
 import PreviewStep from './components/PreviewStep.vue'
 import ApplyStep from './components/ApplyStep.vue'
@@ -16,6 +17,7 @@ const steps = computed(() => [
   { id: 'connect', label: 'Connect', enabled: true },
   { id: 'package', label: 'Package', enabled: connected.value },
   { id: 'configure', label: 'Configure', enabled: connected.value && !!state.pkg },
+  { id: 'fields', label: 'Fields', enabled: state.entries.length > 0 },
   { id: 'review', label: 'Review', enabled: state.entries.length > 0 },
   { id: 'preview', label: 'Preview', enabled: state.entries.length > 0 },
   { id: 'apply', label: 'Apply', enabled: state.entries.length > 0 },
@@ -47,8 +49,9 @@ const steps = computed(() => [
       Next →
     </button>
     <PackageStep v-else-if="step === 'package'" @done="step = 'configure'" @resume="step = 'review'" />
-    <ConfigureStep v-else-if="step === 'configure'" @done="step = 'review'" />
-    <ReviewStep v-else-if="step === 'review'" @done="step = 'preview'" />
+    <ConfigureStep v-else-if="step === 'configure'" @done="(r) => (step = r?.needsFields ? 'fields' : 'review')" />
+    <FieldsStep v-else-if="step === 'fields'" @done="step = 'review'" />
+    <ReviewStep v-else-if="step === 'review'" @done="step = 'preview'" @fields="step = 'fields'" />
     <PreviewStep v-else-if="step === 'preview'" @done="step = 'apply'" @back="step = 'review'" />
     <ApplyStep v-else-if="step === 'apply'" @preview="step = 'preview'" />
   </main>
@@ -257,14 +260,11 @@ table.fields td.side.on:hover { box-shadow: inset 0 0 0 2px var(--accent); }
 .result .preview { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
 footer.row { margin-top: 12px; }
 
-.field-maps > summary { cursor: pointer; }
-.field-maps[open] > summary { margin-bottom: 10px; }
 .map-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
 .map-foot { margin-top: 6px; }
 .map-foot .reset { margin-left: auto; }
 .map-foot .unmapped { display: inline-flex; align-items: baseline; gap: 4px; padding: 1px 8px; border: 1px solid var(--border); border-radius: 10px; }
 .map-foot .unmapped button { padding: 0; }
-button.fields-toggle { margin-top: 10px; }
 
 .recent { margin: 16px 0; }
 .recent h3 { font-size: 13px; color: var(--muted); font-weight: 600; }

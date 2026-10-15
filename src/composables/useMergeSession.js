@@ -558,24 +558,36 @@ function rememberFieldMap(pair) {
 }
 
 /**
- * Pairs whose note types don't line up (different names, or fields the
- * same-name default leaves unpaired) — the ones Review's Field mapping panel lists.
+ * Pairs whose note types don't line up — the ones the Fields step lists. Exact,
+ * because they come from the analysis: each package type's Configure target
+ * (where its new notes go) and every library type its notes matched into.
+ * Configure targets come first, in package order; then the rest, most matched first.
  */
 const fieldPairs = computed(() => {
   const pairs = new Map()
   for (const e of state.entries) {
-    const modelName = e.libNote?.modelName ?? (e.fieldMap ? e.target.modelName : null)
+    // New notes follow the current Configure choice, even if it changed after analysis.
+    const target = state.mapping[e.notetype.id] ?? e.target
+    const modelName = e.libNote?.modelName ?? (e.fieldMap && !target.create ? target.modelName : null)
     if (!modelName) continue
     const key = pairKey(e.notetype.id, modelName)
     if (!pairs.has(key)) {
       const libFields = libFieldsOf(modelName)
-      pairs.set(key, { key, notetype: e.notetype, modelName, libFields, matched: 0, added: 0, samples: [] })
+      const configured = !target.create && target.modelName === modelName
+      pairs.set(key, { key, notetype: e.notetype, modelName, libFields, configured, matched: 0, added: 0, samples: [] })
     }
     const pair = pairs.get(key)
     pair[e.libNote ? 'matched' : 'added']++
     if (pair.samples.length < 20) pair.samples.push(e.pkgFields)
   }
-  return [...pairs.values()].filter((p) => needsFieldMap(p.notetype, p.modelName, p.libFields))
+  const order = new Map((state.pkg?.notetypes ?? []).map((nt, i) => [nt.id, i]))
+  return [...pairs.values()]
+    .filter((p) => needsFieldMap(p.notetype, p.modelName, p.libFields))
+    .sort(
+      (a, b) =>
+        b.configured - a.configured ||
+        (a.configured ? order.get(a.notetype.id) - order.get(b.notetype.id) : b.matched - a.matched),
+    )
 })
 
 /** Reuse a saved decision only if the library note it was made against is unchanged. */

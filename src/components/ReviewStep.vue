@@ -4,10 +4,9 @@ import { useMergeSession } from '../composables/useMergeSession.js'
 import { entryLabel } from '../lib/display.js'
 import ConflictMerge from './ConflictMerge.vue'
 import MergedNote from './MergedNote.vue'
-import FieldMapPanel from './FieldMapPanel.vue'
 
-const emit = defineEmits(['done'])
-const { state, settings, counts, pkgDeckName, acceptAll, clearAll, acceptAllWithoutConflict, setAccepted } =
+const emit = defineEmits(['done', 'fields'])
+const { state, settings, counts, fieldPairs, pkgDeckName, acceptAll, clearAll, acceptAllWithoutConflict, setAccepted } =
   useMergeSession()
 const deckOf = (e) => (state.deckMode === 'package' && pkgDeckName(e.pkgNote.deckId)) || state.targetDeck
 
@@ -102,10 +101,13 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
     </p>
     <p v-if="counts.dropped" class="warn-text small">
       {{ counts.dropped }} matched note(s) have package content in fields not mapped to their library note type; that
-      content is not merged (each note's merge view lists the fields; map them under Field mapping below).
+      content is not merged (each note's merge view lists the fields; map them in the Fields step).
     </p>
 
-    <FieldMapPanel />
+    <p v-if="fieldPairs.length" class="small">
+      Field mapping: {{ fieldPairs.length }} note type pair{{ fieldPairs.length === 1 ? '' : 's' }} ·
+      <button class="link" @click="emit('fields')">edit</button>
+    </p>
 
     <div v-if="tab === 'conflict'">
       <p v-if="!conflicts.length" class="muted">No conflicts.</p>
