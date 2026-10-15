@@ -5,6 +5,7 @@ import { createAnkiClient } from '../lib/ankiClient.js'
 import { analyze, crossTypeMatch, initialResolution, libraryFingerprint, namedFields, rankCandidates, selectMatches, uncrossMatch } from '../lib/match.js'
 import { buildPlan, createReport, defaultMergeTag, executePlan } from '../lib/applyMerge.js'
 import { buildDryRun } from '../lib/dryRun.js'
+import { emptyFilter } from '../lib/reviewFilter.js'
 import { defaultFieldMap, needsFieldMap, pairKey, reconcileFieldMap, savedPairKey, unmappedFields, withNewFields } from '../lib/fieldMap.js'
 import { buildSession, mergedFromRun, mergedMatches, parseSession, restoreSession, sessionPath, sessionSummary } from '../lib/session.js'
 
@@ -105,6 +106,8 @@ const state = reactive({
   session: { path: null, restored: false, savedAt: null },
   // Whether the Preview step has been shown since the last analysis.
   previewed: false,
+  // Review's filter (see reviewFilter.js): kept while moving between steps, not saved.
+  reviewFilter: emptyFilter(),
 })
 
 // ---- session file -------------------------------------------------------
@@ -274,6 +277,7 @@ async function openPackage(path = null) {
       state.resolutions = {}
       state.picks = {}
       state.dupDecisions = {}
+      state.reviewFilter = emptyFilter()
       state.accepted = new Set()
       state.analyzedAt = null
       state.merged = {}
@@ -531,9 +535,10 @@ function decideDuplicate(guid, decision, libId = null) {
   setAccepted(guid, accept)
 }
 
-/** Decide every undecided possible duplicate at once ('add' or 'skip'). */
-function decideAllDuplicates(decision) {
+/** Decide every undecided possible duplicate at once ('add' or 'skip'); `only` (guids) limits it to those shown. */
+function decideAllDuplicates(decision, only = null) {
   for (const e of state.entries) {
+    if (only && !only.has(e.guid)) continue
     if (isDuplicate(e) && !state.merged[e.guid] && !state.dupDecisions[e.guid]) decideDuplicate(e.guid, decision)
   }
 }
@@ -555,19 +560,23 @@ function openGuids(kinds) {
 }
 
 /** Accept every open entry of `kind` ('new' | 'auto'). */
-function acceptAll(kind) {
-  state.accepted = new Set([...state.accepted, ...openGuids([kind])])
+// The bulk actions below take `only` (a Set of guids) to act on just the notes
+// Review's filter shows; without it they act on every open entry.
+const within = (guids, only) => (only ? guids.filter((g) => only.has(g)) : guids)
+
+function acceptAll(kind, only = null) {
+  state.accepted = new Set([...state.accepted, ...within(openGuids([kind]), only)])
 }
 
 /** Withdraw acceptance from every entry of `kind`. */
-function clearAll(kind) {
-  const drop = new Set(openGuids([kind]))
+function clearAll(kind, only = null) {
+  const drop = new Set(within(openGuids([kind]), only))
   state.accepted = new Set([...state.accepted].filter((guid) => !drop.has(guid)))
 }
 
 /** Accept every new note and auto-merge: everything that has no conflict to decide. */
-function acceptAllWithoutConflict() {
-  state.accepted = new Set([...state.accepted, ...openGuids(['new', 'auto'])])
+function acceptAllWithoutConflict(only = null) {
+  state.accepted = new Set([...state.accepted, ...within(openGuids(['new', 'auto']), only)])
 }
 
 function setAccepted(guid, on) {

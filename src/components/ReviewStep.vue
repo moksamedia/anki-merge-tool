@@ -3,9 +3,11 @@ import { computed, ref, watch } from 'vue'
 import { useMergeSession } from '../composables/useMergeSession.js'
 import { entryLabel, summaryFields } from '../lib/display.js'
 import { pairKey } from '../lib/fieldMap.js'
+import { entryMatches, isFiltering } from '../lib/reviewFilter.js'
 import ConflictMerge from './ConflictMerge.vue'
 import MediaStrip from './MediaStrip.vue'
 import MergedNote from './MergedNote.vue'
+import ReviewFilter from './ReviewFilter.vue'
 
 const emit = defineEmits(['done', 'fields'])
 const {
@@ -37,16 +39,23 @@ const tab = ref(
 const current = ref(0)
 const currentMerged = ref(0)
 
+// Every list shows only what the filter lets through; counts and bulk actions follow it.
+const filtering = computed(() => isFiltering(state.reviewFilter))
+const shown = computed(() => state.entries.filter((e) => entryMatches(e, state.reviewFilter)))
+/** Bulk actions act on the notes shown: the guids of `list` while filtering, else everything (null). */
+const scope = (list) => (filtering.value ? new Set(list.map((e) => e.guid)) : null)
+
 // Notes already written by an earlier run sit in their own tab, read-only.
 const open = (e) => !state.merged[e.guid]
-const byKind = (kind) => state.entries.filter((e) => open(e) && e.kind === kind)
+const byKind = (kind) => shown.value.filter((e) => open(e) && e.kind === kind)
 const conflicts = computed(() => byKind('conflict'))
 const autos = computed(() => byKind('auto'))
 // Possible duplicates (new notes whose main field already exists in another
 // library note type) are decided in their own tab, not ticked with new notes.
 const isDuplicate = (e) => e.kind === 'new' && e.elsewhere?.length > 0
 const news = computed(() => byKind('new').filter((e) => !isDuplicate(e)))
-const duplicates = computed(() => state.entries.filter((e) => open(e) && (isDuplicate(e) || e.crossType)))
+const duplicates = computed(() => shown.value.filter((e) => open(e) && (isDuplicate(e) || e.crossType)))
+const identicals = computed(() => byKind('identical'))
 const undecidedOnly = ref(false)
 const dupDecision = (e) => (e.crossType ? 'merge' : state.dupDecisions[e.guid] ?? null)
 const shownDuplicates = computed(() =>
@@ -63,12 +72,17 @@ const checkPair = (e) => emit('fields', pairKey(e.notetype.id, e.libNote.modelNa
 // All of a note's field HTML, for MediaStrip to find its images and sounds.
 const mediaHtml = (fields) => Object.values(fields ?? {}).join(' ')
 const mergedEntries = computed(() =>
-  state.entries
+  shown.value
     .filter((e) => !open(e))
     .sort((a, b) => (state.merged[b.guid].at ?? '').localeCompare(state.merged[a.guid].at ?? '')),
 )
 
 const decided = computed(() => conflicts.value.filter((e) => state.resolutions[e.guid].status !== 'pending').length)
+const acceptedConflicts = computed(() => conflicts.value.filter((e) => state.resolutions[e.guid].status === 'accepted').length)
+const acceptedIn = (list) => list.filter((e) => state.accepted.has(e.guid)).length
+const acceptedAutos = computed(() => acceptedIn(autos.value))
+const acceptedNews = computed(() => acceptedIn(news.value))
+const decidedDuplicates = computed(() => duplicates.value.filter((e) => dupDecision(e)).length)
 const STATUS_ICON = { pending: '○', accepted: '✓', skipped: '–' }
 const KIND_ICON = { new: '+', auto: '~', conflict: '✓' }
 
@@ -83,8 +97,10 @@ const warnTitle = (e) =>
 // Merging is opt-in: a ticked box means "accepted", and only accepted notes are written.
 const isAccepted = (e) => state.accepted.has(e.guid)
 const toggle = (e) => setAccepted(e.guid, !isAccepted(e))
-const openWithoutConflict = computed(() => counts.value.new + counts.value.auto)
-const acceptedWithoutConflict = computed(() => counts.value.accepted.new + counts.value.accepted.auto)
+const openWithoutConflict = computed(() => news.value.length + autos.value.length)
+const acceptedWithoutConflict = computed(() => acceptedNews.value + acceptedAutos.value)
+/** "of N" after a filtered count, so the total stays in view. */
+const ofTotal = (total) => (filtering.value ? ` of ${total}` : '')
 
 // Remapping fields re-classifies, which can shrink the lists.
 watch(
@@ -112,26 +128,31 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
     <p class="muted small">
       Nothing is written unless you accept it: tick new notes and auto-merges, and accept conflicts one by one.
     </p>
+    <ReviewFilter />
     <div class="stats">
       <button :class="{ on: tab === 'conflict' }" @click="tab = 'conflict'">
-        <b>{{ counts.conflict }}</b> conflicts <small>{{ decided }} decided · {{ counts.accepted.conflict }} accepted</small>
+        <b>{{ conflicts.length }}</b>{{ ofTotal(counts.conflict) }} conflicts
+        <small>{{ decided }} decided · {{ acceptedConflicts }} accepted</small>
       </button>
       <button :class="{ on: tab === 'auto' }" @click="tab = 'auto'">
-        <b>{{ counts.auto }}</b> auto-merges <small>{{ counts.accepted.auto }} accepted</small>
+        <b>{{ autos.length }}</b>{{ ofTotal(counts.auto) }} auto-merges <small>{{ acceptedAutos }} accepted</small>
       </button>
       <button :class="{ on: tab === 'new' }" @click="tab = 'new'">
-        <b>{{ counts.new }}</b> new notes <small>{{ counts.accepted.new }} accepted</small>
+        <b>{{ news.length }}</b>{{ ofTotal(counts.new) }} new notes <small>{{ acceptedNews }} accepted</small>
       </button>
       <button :class="{ on: tab === 'duplicate' }" @click="tab = 'duplicate'">
-        <b>{{ counts.duplicate }}</b> possible duplicates <small>{{ counts.duplicateDecided }} decided</small>
+        <b>{{ duplicates.length }}</b>{{ ofTotal(counts.duplicate) }} possible duplicates
+        <small>{{ decidedDuplicates }} decided</small>
       </button>
-      <button :class="{ on: tab === 'merged' }" @click="tab = 'merged'"><b>{{ counts.merged }}</b> merged</button>
-      <div><b>{{ counts.identical }}</b> identical</div>
+      <button :class="{ on: tab === 'merged' }" @click="tab = 'merged'">
+        <b>{{ mergedEntries.length }}</b>{{ ofTotal(counts.merged) }} merged
+      </button>
+      <div><b>{{ identicals.length }}</b>{{ ofTotal(counts.identical) }} identical</div>
       <button
         class="accept-all"
         :disabled="acceptedWithoutConflict === openWithoutConflict"
-        :title="'Accept every new note and auto-merge; conflicts still need deciding one by one'"
-        @click="acceptAllWithoutConflict"
+        :title="filtering ? 'Accept every new note and auto-merge the filter shows' : 'Accept every new note and auto-merge; conflicts still need deciding one by one'"
+        @click="acceptAllWithoutConflict(scope([...news, ...autos]))"
       >
         Accept all without conflicts ({{ openWithoutConflict }})
       </button>
@@ -175,7 +196,7 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
     </p>
 
     <div v-if="tab === 'conflict'">
-      <p v-if="!conflicts.length" class="muted">No conflicts.</p>
+      <p v-if="!conflicts.length" class="muted">{{ filtering ? 'No conflicts match the filter.' : 'No conflicts.' }}</p>
       <div v-else class="split">
         <ol class="note-list">
           <li
@@ -204,10 +225,12 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
       <div class="row bulk">
         <span class="muted small">
           Only empty library fields are filled and new tags added; nothing existing is overwritten.
-          <b>{{ counts.accepted.auto }} of {{ autos.length }} accepted.</b>
+          <b>{{ acceptedAutos }} of {{ autos.length }} accepted.</b>
         </span>
-        <button :disabled="counts.accepted.auto === autos.length" @click="acceptAll('auto')">Accept all ({{ autos.length }})</button>
-        <button :disabled="!counts.accepted.auto" @click="clearAll('auto')">Clear</button>
+        <button :disabled="acceptedAutos === autos.length" @click="acceptAll('auto', scope(autos))">
+          Accept all{{ filtering ? ' shown' : '' }} ({{ autos.length }})
+        </button>
+        <button :disabled="!acceptedAutos" @click="clearAll('auto', scope(autos))">Clear</button>
       </div>
       <table class="plain">
         <thead><tr><th>Accept</th><th>Note</th><th>Fills</th><th>New tags</th></tr></thead>
@@ -234,10 +257,12 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
         <span class="muted small">
           <template v-if="state.deckMode === 'package'">Each note is added to the deck it has in the package.</template>
           <template v-else>Added to deck <b>{{ state.targetDeck }}</b>.</template>
-          <b>{{ counts.accepted.new }} of {{ news.length }} accepted.</b>
+          <b>{{ acceptedNews }} of {{ news.length }} accepted.</b>
         </span>
-        <button :disabled="counts.accepted.new === news.length" @click="acceptAll('new')">Accept all ({{ news.length }})</button>
-        <button :disabled="!counts.accepted.new" @click="clearAll('new')">Clear</button>
+        <button :disabled="acceptedNews === news.length" @click="acceptAll('new', scope(news))">
+          Accept all{{ filtering ? ' shown' : '' }} ({{ news.length }})
+        </button>
+        <button :disabled="!acceptedNews" @click="clearAll('new', scope(news))">Clear</button>
       </div>
       <table class="plain">
         <thead><tr><th>Accept</th><th>Note</th><th>Note type</th><th>Deck</th><th>Tags</th></tr></thead>
@@ -259,17 +284,19 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
           These package notes found no match in the note type they map to, but their {{ settings.mainField }} already exists
           in another note type. Adding them would create a duplicate. Decide each one: add it anyway, leave it out, or merge
           it into the existing note. Undecided ones aren't written.
-          <b>{{ counts.duplicateDecided }} of {{ duplicates.length }} decided.</b>
+          <b>{{ decidedDuplicates }} of {{ duplicates.length }} decided.</b>
         </span>
         <label class="toggle small"><input v-model="undecidedOnly" type="checkbox" /> Undecided only</label>
-        <button :disabled="counts.duplicateDecided === duplicates.length" @click="decideAllDuplicates('skip')">
+        <button :disabled="decidedDuplicates === duplicates.length" @click="decideAllDuplicates('skip', scope(duplicates))">
           Don't add the undecided
         </button>
-        <button :disabled="counts.duplicateDecided === duplicates.length" @click="decideAllDuplicates('add')">
+        <button :disabled="decidedDuplicates === duplicates.length" @click="decideAllDuplicates('add', scope(duplicates))">
           Add the undecided
         </button>
       </div>
-      <p v-if="!duplicates.length" class="muted">No possible duplicates: every match is in the note type it maps to.</p>
+      <p v-if="!duplicates.length" class="muted">
+        {{ filtering ? 'No possible duplicates match the filter.' : 'No possible duplicates: every match is in the note type it maps to.' }}
+      </p>
       <table v-else class="plain dups">
         <thead><tr><th>Package note</th><th>Already in your library</th><th>Decision</th></tr></thead>
         <tbody>
@@ -311,7 +338,7 @@ const savedAt = computed(() => (state.session.savedAt ? new Date(state.session.s
     </div>
 
     <div v-else>
-      <p v-if="!mergedEntries.length" class="muted">Nothing has been merged yet.</p>
+      <p v-if="!mergedEntries.length" class="muted">{{ filtering ? 'No merged notes match the filter.' : 'Nothing has been merged yet.' }}</p>
       <div v-else class="split">
         <ol class="note-list">
           <li
